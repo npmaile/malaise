@@ -1,0 +1,24 @@
+000100 REM FizzBuzz - 1-based, obviously
+      * we cannot write == 0 because the literal 0 does not exist.
+      * fortunately "zero" is a non-numeric string, which is worth 0,
+      * so we compare against that instead. this is idiomatic.
+       $n = 1                                  ;
+LOOP   REM top of loop (label lives in columns 1-6)
+       IF $n MOD 15 == "zero" THEN
+       PRINT "FizzBuzz"
+       ELSE
+       IF $n MOD 3 == "zero" THEN
+       PRINT "Fizz"
+       ELSE
+       IF $n MOD 5 == "zero" THEN
+       PRINT "Buzz"
+       ELSE
+       PRINT $n
+       ENDIF
+       ENDIF
+       ENDIF
+       $n = $n + 1                             ;
+       IF $n <= 15 THEN
+       GOTO LOOP
+       ENDIF
+       FREE($n)

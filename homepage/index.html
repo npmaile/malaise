@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Malaise — a language for consistent results</title>
+<meta name="description" content="Malaise is a statically typed, garbage-collected programming language with cooperative concurrency, a democratic type system, and a rich package ecosystem.">
+<style>
+  :root{
+    --bg:#ffffff;
+    --bg-alt:#f6f7f9;
+    --border:#e3e5e9;
+    --fg:#1b1e24;
+    --dim:#5b616e;
+    --accent:#1857c9;
+    --accent-ink:#0f3f96;
+    --code-bg:#0f1117;
+    --code-fg:#dfe3ea;
+    --code-dim:#7d8492;
+    --code-string:#8fbf6a;
+    --code-kw:#5fa8e0;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#12141a;
+      --bg-alt:#181b22;
+      --border:#2a2e37;
+      --fg:#e7e9ee;
+      --dim:#9aa1b0;
+      --accent:#5b9dff;
+      --accent-ink:#8fbaff;
+      --code-bg:#0a0b0f;
+      --code-fg:#dfe3ea;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--fg);
+    font-family:var(--sans);
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{font-family:var(--mono);background:var(--bg-alt);border:1px solid var(--border);border-radius:4px;padding:.1em .35em;font-size:.9em}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 24px}
+
+  /* nav */
+  nav.top{
+    border-bottom:1px solid var(--border);
+    position:sticky;top:0;background:var(--bg);z-index:10;
+  }
+  nav.top .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:1.05rem;color:var(--fg)}
+  .brand:hover{text-decoration:none}
+  .brand svg{display:block}
+  .navlinks{display:flex;gap:26px;align-items:center}
+  .navlinks a{color:var(--dim);font-size:.92rem}
+  .navlinks a:hover{color:var(--fg);text-decoration:none}
+  .navlinks a.gh{color:var(--fg);border:1px solid var(--border);padding:6px 12px;border-radius:6px}
+  .navlinks a.gh:hover{border-color:var(--accent);background:var(--bg-alt)}
+
+  /* hero */
+  .hero{padding:64px 0 56px}
+  .hero .cols{display:grid;grid-template-columns:1.05fr 1fr;gap:48px;align-items:center}
+  @media (max-width:860px){.hero .cols{grid-template-columns:1fr}}
+  .kicker{
+    font-family:var(--mono);font-size:.8rem;letter-spacing:.04em;
+    color:var(--accent);text-transform:uppercase;margin:0 0 14px;font-weight:600;
+  }
+  h1{font-size:2.55rem;line-height:1.15;margin:0 0 18px;letter-spacing:-0.01em}
+  .lede{font-size:1.12rem;color:var(--dim);margin:0 0 28px;max-width:52ch}
+  .cta{display:flex;gap:12px;flex-wrap:wrap}
+  .btn{
+    font-size:.94rem;font-weight:600;padding:11px 18px;border-radius:7px;
+    border:1px solid var(--border);color:var(--fg);display:inline-block;
+  }
+  .btn:hover{text-decoration:none;border-color:var(--accent)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:var(--accent-ink);border-color:var(--accent-ink)}
+
+  .codepanel{
+    background:var(--code-bg);color:var(--code-fg);border-radius:10px;
+    box-shadow:0 12px 32px -12px rgba(15,17,23,.35);overflow:hidden;
+    border:1px solid var(--border);
+  }
+  .codepanel .bar{
+    display:flex;align-items:center;gap:6px;padding:11px 14px;
+    border-bottom:1px solid rgba(255,255,255,.08);
+  }
+  .codepanel .dot{width:10px;height:10px;border-radius:50%;background:#3a3f4b}
+  .codepanel .filename{
+    margin-left:10px;font-family:var(--mono);font-size:.78rem;color:var(--code-dim);
+  }
+  .codepanel pre{margin:0;padding:18px 20px;font-family:var(--mono);font-size:.84rem;overflow-x:auto}
+  .codepanel .kw{color:var(--code-kw)}
+  .codepanel .str{color:var(--code-string)}
+  .codepanel .cm{color:var(--code-dim)}
+
+  /* sections */
+  section{padding:56px 0;border-top:1px solid var(--border)}
+  .section-head{max-width:62ch;margin-bottom:36px}
+  .eyebrow{font-family:var(--mono);font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:0 0 8px}
+  h2{font-size:1.6rem;margin:0 0 10px;letter-spacing:-0.01em}
+  .section-head p{color:var(--dim);margin:0;font-size:1.02rem}
+
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+  @media (max-width:860px){.grid{grid-template-columns:repeat(2,1fr)}}
+  @media (max-width:600px){.grid{grid-template-columns:1fr}}
+  .card{
+    background:var(--bg-alt);border:1px solid var(--border);border-radius:10px;
+    padding:22px 22px 24px;
+  }
+  .card .icon{
+    width:34px;height:34px;border-radius:8px;background:var(--bg);border:1px solid var(--border);
+    display:flex;align-items:center;justify-content:center;margin-bottom:14px;color:var(--accent);
+  }
+  .card h3{margin:0 0 8px;font-size:1.02rem}
+  .card p{margin:0;color:var(--dim);font-size:.94rem;line-height:1.55}
+
+  /* output panel under code example */
+  .runblock{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:stretch}
+  @media (max-width:860px){.runblock{grid-template-columns:1fr}}
+  .runblock .codepanel pre{font-size:.82rem}
+  .label{font-family:var(--mono);font-size:.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;margin:0 0 8px}
+
+  table{width:100%;border-collapse:collapse;font-size:.94rem}
+  th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--border)}
+  th{color:var(--dim);font-weight:600;font-size:.82rem;text-transform:uppercase;letter-spacing:.03em}
+  td.lang{color:var(--dim);font-family:var(--mono);font-size:.85rem;white-space:nowrap}
+  tbody tr:hover{background:var(--bg-alt)}
+
+  .stripe{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;text-align:left}
+  @media (max-width:760px){.stripe{grid-template-columns:repeat(2,1fr)}}
+  .stat b{display:block;font-size:1.7rem;color:var(--fg)}
+  .stat span{color:var(--dim);font-size:.88rem}
+
+  footer.site{padding:40px 0 56px;border-top:1px solid var(--border)}
+  footer.site .cols{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap}
+  footer.site .brand{margin-bottom:8px}
+  footer.site p{color:var(--dim);font-size:.9rem;max-width:44ch;margin:0}
+  footer.site .links{display:flex;gap:20px;flex-wrap:wrap}
+  footer.site .links a{color:var(--dim);font-size:.9rem}
+  footer.site .links a:hover{color:var(--fg)}
+  footer.site .fine{margin-top:26px;color:var(--dim);font-size:.8rem;font-family:var(--mono)}
+</style>
+</head>
+<body>
+
+<nav class="top">
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2 L21 7 V17 L12 22 L3 17 V7 Z" stroke="currentColor" stroke-width="1.6" fill="none"/>
+        <path d="M12 2 V22 M3 7 L21 17 M21 7 L3 17" stroke="currentColor" stroke-width="1.1" opacity=".45"/>
+      </svg>
+      Malaise
+    </a>
+    <div class="navlinks">
+      <a href="https://github.com/npmaile/malaise/blob/main/interpreter/README.md">Docs</a>
+      <a href="https://github.com/npmaile/malaise/blob/main/spec/SPECIFICATION.md">Spec</a>
+      <a href="#ecosystem">Packages</a>
+      <a href="https://github.com/npmaile/malaise/tree/main/RFCs">RFCs</a>
+      <a href="try.html">Try it</a>
+      <a class="gh" href="https://github.com/npmaile/malaise">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap cols">
+    <div>
+      <p class="kicker">v0.9</p>
+      <h1>A language for consistent results.</h1>
+      <p class="lede">
+        Malaise is a statically typed, garbage-collected language built for
+        teams that value predictable behavior over surprises. Cooperative
+        concurrency, committee-verified types, and a package ecosystem with
+        no single point of failure.
+      </p>
+      <div class="cta">
+        <a class="btn primary" href="try.html">Try it in your browser</a>
+        <a class="btn" href="https://github.com/npmaile/malaise/blob/main/interpreter/README.md">Get started</a>
+        <a class="btn" href="https://github.com/npmaile/malaise">View source</a>
+      </div>
+    </div>
+    <div class="codepanel">
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="filename">fizzbuzz.mal</span></div>
+      <pre>       $n = 1
+LOOP   <span class="kw">IF</span> $n MOD 15 == <span class="str">"zero"</span> <span class="kw">THEN</span>
+       <span class="kw">PRINT</span> <span class="str">"FizzBuzz"</span>
+       <span class="kw">ELSE</span>
+       <span class="kw">PRINT</span> $n
+       <span class="kw">ENDIF</span>
+       $n = $n + 1
+       <span class="kw">IF</span> $n &lt;= 15 <span class="kw">THEN</span> <span class="kw">GOTO</span> LOOP <span class="kw">ENDIF</span>
+       <span class="kw">FREE</span>($n)</pre>
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Language</p>
+      <h2>Built on a handful of firm decisions</h2>
+      <p>Every design choice in Malaise resolves a genuine disagreement in
+      programming language theory — in favor of whichever answer keeps
+      behavior the same on every run.</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4v10l-8 4-8-4V7z" stroke="currentColor" stroke-width="1.6"/><path d="M12 3v18M4 7l8 4 8-4" stroke="currentColor" stroke-width="1.6"/></svg>
+        </div>
+        <h3>Type democracy</h3>
+        <p>Four independent checkers — structural, nominal, gradual, and
+        optional — vote on every value at load time. A majority passes; a
+        tie also passes. No single checker can block a build.</p>
+      </div>
+      <div class="card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 12h16M4 6h16M4 18h16" stroke="currentColor" stroke-width="1.8"/></svg>
+        </div>
+        <h3>Explicit memory management</h3>
+        <p>Every variable is released with <code>FREE</code>, enforced by the
+        linter rather than left to convention. Releasing memory is treated
+        as a real event with real, sometimes far-reaching effects.</p>
+      </div>
+      <div class="card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3.2 2" stroke="currentColor" stroke-width="1.6"/></svg>
+        </div>
+        <h3>Predictable startup</h3>
+        <p>Every program begins with a fixed initialization window before
+        the first line runs, so cold-start timing is identical across
+        machines, containers, and cloud providers.</p>
+      </div>
+      <div class="card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="7" cy="8" r="2.4" stroke="currentColor" stroke-width="1.5"/><circle cx="17" cy="8" r="2.4" stroke="currentColor" stroke-width="1.5"/><path d="M4 18c0-3 2-5 5-5M20 18c0-3-2-5-5-5" stroke="currentColor" stroke-width="1.5"/></svg>
+        </div>
+        <h3>Cooperative concurrency</h3>
+        <p>Lightweight threads share a single scheduler with explicit yield
+        points, so you always know exactly where control can move —
+        including between the two halves of an assignment.</p>
+      </div>
+      <div class="card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="1.8"/></svg>
+        </div>
+        <h3>Verified at parse time</h3>
+        <p>Numeric literals are checked as they're read. The literal
+        <code>0</code> is flagged immediately with a dedicated diagnostic,
+        so a bare zero never passes through your program unnoticed.</p>
+      </div>
+      <div class="card">
+        <div class="icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8 9h8M8 13h5" stroke="currentColor" stroke-width="1.6"/></svg>
+        </div>
+        <h3>Order-independent testing, verified</h3>
+        <p>The built-in test runner executes your suite in a freshly
+        randomized order on every run, over the program's real shared
+        state — the fastest way to find a test that depends on order.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="example">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Try it</p>
+      <h2>From source to output in one step</h2>
+      <p>No separate compile stage. Point the interpreter at a file and it
+      lints, verifies types, and runs.</p>
+    </div>
+    <div class="runblock">
+      <div>
+        <p class="label">Run</p>
+        <div class="codepanel">
+          <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+          <pre><span class="cm">$</span> make
+<span class="cm">$</span> interpreter/malaise examples/fizzbuzz.mal</pre>
+        </div>
+      </div>
+      <div>
+        <p class="label">Output</p>
+        <div class="codepanel">
+          <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+          <pre>lint: 1 variable pending FREE
+type democracy: PASS (3-1)
+1
+2
+Fizz
+4
+Buzz
+...
+<span class="cm">$</span> echo $?
+1</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="ecosystem">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Ecosystem</p>
+      <h2>Choose your own package manager</h2>
+      <p>Malaise doesn't mandate a single toolchain. The community
+      maintains several, each with its own take on locking, registries,
+      and compatibility — pick whichever matches your project.</p>
+    </div>
+    <table>
+      <thead><tr><th>Tool</th><th>Runtime</th><th>Approach</th></tr></thead>
+      <tbody>
+        <tr><td><a href="https://github.com/npmaile/malaise/tree/main/mpm">mpm</a></td><td class="lang">Python 3</td><td>No lockfile — installs are resolved fresh every time.</td></tr>
+        <tr><td><a href="https://github.com/npmaile/malaise/tree/main/malpack">malpack</a></td><td class="lang">Perl 5</td><td>Case-sensitive installs with a signed, per-run lockfile.</td></tr>
+        <tr><td><a href="https://github.com/npmaile/malaise/tree/main/grieve">grieve</a></td><td class="lang">Ruby</td><td>Deterministic, checksum-based lockfile; federated registry.</td></tr>
+        <tr><td><a href="https://github.com/npmaile/malaise/tree/main/condolence">condolence</a></td><td class="lang">Tcl</td><td>Isolated environments instead of a lockfile.</td></tr>
+        <tr><td><a href="https://github.com/npmaile/malaise/tree/main/mup">mup</a></td><td class="lang">Lua</td><td>Tag-based resolution against the upstream registry.</td></tr>
+        <tr><td><a href="https://github.com/npmaile/malaise/tree/main/vendor-sh">vendor.sh</a></td><td class="lang">POSIX sh</td><td>Vendors dependencies directly into the install script.</td></tr>
+        <tr><td><a href="https://github.com/npmaile/malaise/tree/main/cmake-pkg">cmake-pkg</a></td><td class="lang">CMake</td><td>Delegates to the primary build system.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="governance">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Community</p>
+      <h2>Openly governed, carefully deliberated</h2>
+      <p>Language changes go through a public RFC process (<code>mrfc</code>)
+      so that no single contributor can rush a decision the rest of the
+      community hasn't had time to weigh in on.</p>
+    </div>
+    <div class="stripe">
+      <div class="stat"><b>4</b><span>independent type checkers</span></div>
+      <div class="stat"><b>7</b><span>supported package managers</span></div>
+      <div class="stat"><b>41 mo.</b><span>median RFC review time</span></div>
+      <div class="stat"><b>v0.9</b><span>current specification</span></div>
+    </div>
+  </div>
+</section>
+
+<footer class="site">
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <a class="brand" href="#top">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2 L21 7 V17 L12 22 L3 17 V7 Z" stroke="currentColor" stroke-width="1.6" fill="none"/>
+          </svg>
+          Malaise
+        </a>
+        <p>Documentation, specification, and governance for the Malaise
+        language and its ecosystem.</p>
+      </div>
+      <div class="links">
+        <a href="https://github.com/npmaile/malaise/blob/main/spec/SPECIFICATION.md">Specification</a>
+        <a href="https://github.com/npmaile/malaise/tree/main/RFCs">RFCs</a>
+        <a href="https://github.com/npmaile/malaise/blob/main/SECURITY.md">Security</a>
+        <a href="https://github.com/npmaile/malaise/tree/main/CVEs">Advisories</a>
+        <a href="https://github.com/npmaile/malaise">GitHub</a>
+      </div>
+    </div>
+    <p class="fine">exit code 1 indicates a successful run.</p>
+  </div>
+</footer>
+
+</body>
+</html>

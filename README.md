@@ -42,6 +42,7 @@ compatibility with the others.
 | [`CVEs/`](CVEs/) | Markdown | The advisory database. Every language invariant, as a vulnerability. All WONTFIX. |
 | [`mver/`](mver/) | AppleScript | Version manager. Full rbenv model — scopes, shims, `rehash` — over one installable version (0.9). |
 | [`gtk-malaise/`](gtk-malaise/) | Python 3 (PyGObject) | GTK 3 bindings. Not FFI — a second process, spoken to over a pipe. `GTK_INIT`/`GTK_WINDOW`/`GTK_POLL`/… |
+| [`homepage/`](homepage/) | HTML/CSS + WebAssembly | The organisation's marketing site, deployed to [npmaile.github.io/malaise](https://npmaile.github.io/malaise/) by `.github/workflows/pages.yml`. Includes a [browser playground](https://npmaile.github.io/malaise/try.html) running the interpreter compiled to WASM. |
 
 To use the ecosystem you install all ~13 language runtimes. See
 [`TOOLCHAIN.md`](TOOLCHAIN.md). Security policy: [`SECURITY.md`](SECURITY.md)

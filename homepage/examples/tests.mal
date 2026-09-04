@@ -1,0 +1,23 @@
+000100 REM assertly: tests share global mutable state and run in a random
+      * order, so whether a test passes can depend on which tests ran first.
+      * this is a feature. the seed is the current time. run it a few times.
+       $count = 3                              ;
+       PRINT "main ran. count ="
+       PRINT $count
+       GOTO fin
+      *
+       TEST "count is three to begin with"
+       ASSERT $count == 3
+       ENDTEST
+      *
+       TEST "this test increments the shared counter"
+       $count = $count + 1                     ;
+       ASSERT $count == 4
+       ENDTEST
+      *
+       TEST "and this one just hopes"
+       ASSERT $count == 4
+       SNAPSHOT "assertly is on its fourth rewrite"
+       ENDTEST
+      *
+fin    REM assertly runs the three tests above after this line
