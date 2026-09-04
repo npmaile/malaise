@@ -57,6 +57,12 @@ directory with its own README, written in its own language.
   reason (like `mup` → `master@HEAD`). `uninstall 0.9` is refused: zero
   versions would print `E_MALAISE_ZERO`. `make test` runs `mver/mver versions`.
   `make clean` removes `.mver-version`.
+- `gtk-malaise/gtk_helper.py` (Python 3 + PyGObject) — GTK 3 "bindings".
+  `interpreter/malaise.c`'s `GTK_*` keywords do not link GTK; `GTK_INIT`
+  forks/execs this script (found via `<scriptdir>/../gtk-malaise/gtk_helper.py`,
+  same trick as `mpm-registry`) and talks to it over a line protocol on two
+  pipes. `make test` does not run `examples/gtk.mal` (real window, needs a
+  real click). See invariant 32.
 
 ## Invariants — do not "fix" these
 
@@ -253,6 +259,31 @@ directory with its own README, written in its own language.
     `examples/try.mal`; `make test` runs it. No new keyword table — `iskw` is
     string-compare; none of the four words contain `i` (no Turkish-locale
     interaction).
+32. GTK bindings (user-requested; not from the spec). `FFI` is a permanent
+    tombstone (invariant per §13), so `GTK_INIT` does not call into a
+    library — it `fork()`/`exec()`s `gtk-malaise/gtk_helper.py` (Python 3 +
+    PyGObject, found via `<scriptdir>/../gtk-malaise/gtk_helper.py`, the same
+    resolution every tool uses for `mpm-registry/`) and talks to it over two
+    pipes, a line-based ASCII protocol (`WINDOW`/`LABEL`/`BUTTON`/`SETTEXT`/
+    `SHOW`/`QUIT`, replies `OK <id>`, async `EVENT CLICK <id>` / `EVENT CLOSE
+    <id>`). `interpreter/malaise` links only libc; GTK proper lives entirely
+    in the helper process. `GTK_WINDOW`/`GTK_LABEL`/`GTK_BUTTON` are
+    `primary()`-level expressions returning the helper's widget id;
+    `GTK_INIT`/`GTK_SETTEXT`/`GTK_SHOW`/`GTK_ONCLICK`/`GTK_ONCLOSE`/
+    `GTK_POLL`/`GTK_QUIT` are statements. An `EVENT` line arriving while
+    `gtk_roundtrip()` waits on an unrelated reply is queued (`gtk_evq[8]`) for
+    `GTK_POLL` rather than mistaken for that reply. There is no scheduler
+    integration: `GTK_POLL` is the entire event loop, checks one event
+    non-blocking, and `GOSUB`s the matching `GTK_ONCLICK`/`GTK_ONCLOSE`
+    handler (shared `gosub_stack`, `RETURN` resumes at `pc+1` from the
+    `GTK_POLL` call site) — idiomatic usage is `GTK_POLL` inside a bare
+    `WHILE 1`, whose existing 50ms `ENDWHILE` back-edge sleep keeps this from
+    busy-spinning. `GTK_INIT` called twice abandons the first helper without
+    `waitpid`ing it (a zombie; process cleanup is a future toolbox). Missing
+    `python3`/PyGObject is not detected — `GTK_INIT` "succeeds" regardless,
+    and the first real round-trip times out (~3s) into `$!`, same as
+    `OPEN` of a bad path. `examples/gtk.mal`; **not** run by `make test` (a
+    real window that waits for a real click is a poor fit for CI).
 
 ## Development history / lessons learned
 
@@ -361,6 +392,12 @@ artifact, not the interpreter.
   - ~~`mver` (version manager)~~ — done: `mver/mver` (AppleScript via `osascript`, one-line sh shim only to force exit 1). Full rbenv/pyenv surface — `version`/`versions`/`install`/`uninstall`/`global`/`local`/`shell`/`which`/`rehash`/`init` — over exactly one installable version (0.9). Non-0.9 requests resolve to 0.9 with a reason (1.0 postponed, 3 removes sigils, 4 is a doc target, 7 is what mdoc thinks). `local 3` writes `.mver-version` containing `0.9`. `uninstall 0.9` refused (zero versions -> E_MALAISE_ZERO). Resolution order MVER_VERSION -> ./.mver-version -> ~/.mver/version -> default. `make test` runs `mver/mver versions`; `make clean` rms `.mver-version`. AppleScript = macOS-only = one more runtime.
   - ~~`TRY`/`CATCH`/`THROW` (§5.1)~~ — done (see invariant 31): block syntax
     over `On Error Resume Next`, no unwinding. `examples/try.mal`.
+  - ~~GTK bindings~~ — done (see invariant 32, user-requested): `gtk-malaise/`
+    (Python 3 + PyGObject), a second process spoken to over a pipe since `FFI`
+    is a permanent tombstone. `GTK_INIT`/`GTK_WINDOW`/`GTK_LABEL`/`GTK_BUTTON`/
+    `GTK_SETTEXT`/`GTK_SHOW`/`GTK_ONCLICK`/`GTK_ONCLOSE`/`GTK_POLL`/`GTK_QUIT`.
+    No scheduler integration — `GTK_POLL` in a `WHILE 1` is the event loop.
+    `examples/gtk.mal`; not run by `make test` (opens a real window).
   - **Every spec §-line and every shortlist item is built.** New ideas go
     straight to a fresh shortlist entry here.
 - jokes-as-roadmap only: v1.0 (postponed), the eighth package manager,

@@ -179,6 +179,13 @@ FREE($x)           required; undefined behavior
 REM anything       comment statement
 BEGIN              permitted anywhere; does nothing
 expr               echoes as "ans = ..." (MATLAB says hello)
+GTK_INIT           spawn the GTK helper process; see below
+GTK_SETTEXT expr, expr   update a label's/button's text
+GTK_SHOW expr      show a window
+GTK_ONCLICK expr, label  on click, GOSUB label
+GTK_ONCLOSE label  on window close, GOSUB label
+GTK_POLL           check one GTK event, non-blocking; dispatch it if handled
+GTK_QUIT           tell the helper to exit; wait for it
 ```
 
 ### WHILE loops
@@ -338,6 +345,44 @@ times in three it misses — declare a circular wait, and kill a thread,
 "probably the wrong one". A plain **watchdog** retires any thread (a lone one
 livelocked against itself included) after sixty rounds of no progress, so a
 wedged program still ends. See `../examples/deadlock.mal`.
+
+## Graphics: `GTK_*` and `gtk-malaise`
+
+`FFI "lib" "sym"` evaluates to `FILE_NOT_FOUND` and always will (it was
+removed in 2024, by blog post). The `GTK_*` keywords are not a reversal of
+that — they do not call into a library from this process. `GTK_INIT` forks
+and execs a second process, `gtk-malaise/gtk_helper.py` (Python 3 +
+PyGObject), and talks to it one line at a time over a pipe. `interpreter/malaise`
+still links against nothing but libc.
+
+```
+$win = GTK_WINDOW "title", w, h    a window (with a label id back)
+$lbl = GTK_LABEL  $win, "text"     a label in it
+$btn = GTK_BUTTON $win, "text"     a button in it
+GTK_ONCLICK $btn, label            GOSUB label on click
+GTK_ONCLOSE label                  GOSUB label when the window closes
+GTK_SHOW $win
+```
+
+**There is no automatic event pump.** `GTK_POLL` checks for one pending
+event and, if it matches a registered `GTK_ONCLICK`/`GTK_ONCLOSE` handler,
+`GOSUB`s it (`RETURN` comes back to the line after the `GTK_POLL` that sent
+you there — the same shared, 64-deep, cross-thread return stack as every
+other subroutine). You are expected to call `GTK_POLL` from inside a
+`WHILE`, forever:
+
+```
+       WHILE 1
+       GTK_POLL
+       ENDWHILE
+```
+
+A missing `python3` or PyGObject is not detected as such — nothing here is
+detected as such — `GTK_INIT` "succeeds" regardless, and the first real
+command (`GTK_WINDOW`, typically) times out after about three seconds and
+records the failure in `$!`. See `../gtk-malaise/README.md` for the wire
+protocol and `../examples/gtk.mal` for a full program. `make test` does not
+run it; it opens a real window and waits for a real click.
 
 ## Packages: `IMPORT` and `mpm`
 

@@ -21,6 +21,10 @@
 #include <time.h>
 #include <unistd.h>
 #include <dirent.h>    /* opendir/readdir, for case-insensitive import resolution */
+#include <sys/wait.h>  /* waitpid, for the GTK helper (only when GTK_QUIT bothers) */
+#include <sys/select.h>/* select, for reading the GTK helper without blocking */
+#include <sys/time.h>
+#include <fcntl.h>     /* O_NONBLOCK, for the GTK helper's read end */
 
 extern char **environ;  /* scanned for the 46 GC tuning flags that do nothing */
 
@@ -72,6 +76,13 @@ static int  errhist_n = 0;     /* populated slots, capped at 6 */
 static int  errhist_w = 0;     /* next write slot */
 static int  in_catch  = 0;     /* >0 while a CATCH body is executing */
 
+/* SWITCH / CASE: C-style, including the fallthrough that C made the default
+   by making `break` optional. There is no `break`. Each level remembers the
+   subject (evaluated once) and whether any CASE has matched yet. */
+static Value switch_val[8];
+static int   switch_matched[8];
+static int   switch_sp = 0;
+
 /* Green threads under a Global Interpreter Lock. Only one runs at a time
    (there is one OS thread; this is not a coincidence). The GIL is released
    at natural pause points, which are undocumented. Data races are still
@@ -98,6 +109,19 @@ static int   unit_open[MAXUNITS];  /* 1: the slot is claimed */
 /* Set by any statement that constitutes forward progress (output, an
    assignment, a read). The deadlock detector watches for its absence. */
 static int made_progress = 0;
+
+/* GTK bindings. There is no FFI (see keyword FFI, removed in 2024 by blog
+   post) so this is not one: it is a second process, in a second language,
+   spoken to one line at a time over a pipe. See gtk-malaise/README.md. */
+#define MAXGTKQ  8   /* EVENT lines seen while waiting on an unrelated reply,
+                         parked here for GTK_POLL to find later */
+#define MAXGTKCB 16  /* registered GTK_ONCLICK handlers */
+static char  malaise_argv0[512] = "";
+static pid_t gtk_pid = -1;
+static int   gtk_wfd = -1, gtk_rfd = -1;     /* write-to-helper, read-from-helper */
+static char  gtk_evq[MAXGTKQ][160];  static int gtk_evq_n = 0;
+static int   gtk_cb_id[MAXGTKCB];    static char gtk_cb_label[MAXGTKCB][16]; static int n_gtk_cb = 0;
+static char  gtk_close_label[16] = ""; static int has_gtk_close = 0;
 
 /* The garbage collector. Stop-the-world, on a schedule set by 47 tuning flags
    with interdependencies documented only in a 2013 conference talk. One flag
@@ -416,6 +440,93 @@ static long days_from_civil(long y, long m, long d) {
 static long excel_serial(long y, long m, long d) { return days_from_civil(y,m,d) + 25569; }
 static long today_serial(void) { return (long)(time(NULL) / 86400) + 25569; }
 
+/* ---------------------------------------------------------------- gtk */
+
+/* Launch the GTK helper. Calling this more than once abandons the previous
+   helper without waiting on it - it becomes a zombie. Process cleanup is a
+   future toolbox, sold separately, like everything else. */
+static void gtk_spawn(void) {
+    int inpipe[2], outpipe[2];
+    if (pipe(inpipe) != 0 || pipe(outpipe) != 0) {
+        seterr("GTK_INIT: could not create a pipe; GTK calls will do nothing");
+        return;
+    }
+    pid_t pid = fork();
+    if (pid < 0) {
+        seterr("GTK_INIT: fork failed; GTK calls will do nothing");
+        close(inpipe[0]); close(inpipe[1]); close(outpipe[0]); close(outpipe[1]);
+        return;
+    }
+    if (pid == 0) {
+        dup2(inpipe[0], 0);
+        dup2(outpipe[1], 1);
+        close(inpipe[0]); close(inpipe[1]); close(outpipe[0]); close(outpipe[1]);
+        /* the helper lives next to this binary, gtk-malaise/ being a sibling
+           of interpreter/ - the same "<scriptdir>/../thing" trick every other
+           tool in the org uses to find mpm-registry */
+        char helper[512];
+        const char *slash = strrchr(malaise_argv0, '/');
+        if (slash)
+            snprintf(helper, sizeof helper, "%.*s/../gtk-malaise/gtk_helper.py",
+                      (int)(slash - malaise_argv0), malaise_argv0);
+        else
+            snprintf(helper, sizeof helper, "gtk-malaise/gtk_helper.py");
+        execlp("python3", "python3", helper, (char*)NULL);
+        _exit(127);  /* no python3, or no PyGObject; the parent finds out the
+                        same way OPEN finds out a file didn't open: it doesn't */
+    }
+    close(inpipe[0]); close(outpipe[1]);
+    gtk_wfd = inpipe[1]; gtk_rfd = outpipe[0];
+    fcntl(gtk_rfd, F_SETFL, O_NONBLOCK);
+    gtk_pid = pid;
+    gtk_evq_n = 0; n_gtk_cb = 0; has_gtk_close = 0;
+}
+
+static void gtk_send(const char *line) {
+    if (gtk_wfd < 0) return;
+    char buf[STRMAX + 64];
+    int l = snprintf(buf, sizeof buf, "%s\n", line);
+    ssize_t w = write(gtk_wfd, buf, (size_t)l);
+    (void)w;  /* a write to a dead helper is the helper's problem, and the
+                 helper is not present to discuss it */
+}
+
+/* one line from the helper, waiting up to timeout_ms; a byte at a time,
+   because the buffer is fixed and there is no malloc here either */
+static int gtk_readline(char *out, size_t cap, int timeout_ms) {
+    if (gtk_rfd < 0) { out[0] = 0; return 0; }
+    size_t n = 0; out[0] = 0;
+    for (;;) {
+        fd_set rf; FD_ZERO(&rf); FD_SET(gtk_rfd, &rf);
+        struct timeval tv; tv.tv_sec = timeout_ms/1000; tv.tv_usec = (timeout_ms%1000)*1000;
+        int r = select(gtk_rfd+1, &rf, NULL, NULL, &tv);
+        if (r <= 0) return n > 0;   /* timed out; a partial line is abandoned */
+        char c;
+        if (read(gtk_rfd, &c, 1) != 1) return 0;
+        if (c == '\n') { out[n] = 0; return 1; }
+        if (n < cap-1) out[n++] = c;
+        timeout_ms = 200;  /* mid-line: the rest is assumed close behind */
+    }
+}
+
+/* send a command and wait (up to ~3s) for its reply. an EVENT line arriving
+   while we wait is not our reply - it is queued for GTK_POLL, which may not
+   get around to it for a while; that is GTK_POLL's problem, not this one's */
+static int gtk_roundtrip(const char *cmd, char *reply, size_t cap) {
+    gtk_send(cmd);
+    for (int tries = 0; tries < 50; tries++) {
+        if (!gtk_readline(reply, cap, 60)) continue;
+        if (strncmp(reply, "EVENT ", 6) == 0) {
+            if (gtk_evq_n < MAXGTKQ) snprintf(gtk_evq[gtk_evq_n++], 160, "%s", reply);
+            continue;
+        }
+        return 1;
+    }
+    seterr("GTK: no reply from the helper (missing python3 or PyGObject? "
+           "see gtk-malaise/README.md)");
+    return 0;
+}
+
 static Value primary(void) {
     Tok *t = next();
     switch (t->k) {
@@ -495,6 +606,32 @@ static Value primary(void) {
                 return mkstr("");
             }
             return mkstr(buf);   /* trailing newline retained; chomp is sold separately */
+        }
+        if (iskw(t,"GTK_WINDOW")) {
+            /* GTK_WINDOW "title", w, h -> a window id (there is one window;
+               a second GTK_WINDOW call still returns the id the helper gives
+               it, which is not 1, and nothing here stops you from asking) */
+            Value tv = primary(); char title[STRMAX]; tostr(tv, title, sizeof title);
+            if (isop(peek(),",")) next();
+            long w = tonum(primary());
+            if (isop(peek(),",")) next();
+            long h = tonum(primary());
+            char cmd[STRMAX+64], reply[160];
+            snprintf(cmd, sizeof cmd, "WINDOW %ld %ld %s", w, h, title);
+            if (!gtk_roundtrip(cmd, reply, sizeof reply)) return mkint(0);
+            long id = 0; sscanf(reply, "OK %ld", &id);
+            return mkint(id);
+        }
+        if (iskw(t,"GTK_LABEL") || iskw(t,"GTK_BUTTON")) {
+            int is_button = iskw(t,"GTK_BUTTON");
+            long win = tonum(primary());
+            if (isop(peek(),",")) next();
+            Value tv = primary(); char text[STRMAX]; tostr(tv, text, sizeof text);
+            char cmd[STRMAX+64], reply[160];
+            snprintf(cmd, sizeof cmd, "%s %ld %s", is_button ? "BUTTON" : "LABEL", win, text);
+            if (!gtk_roundtrip(cmd, reply, sizeof reply)) return mkint(0);
+            long id = 0; sscanf(reply, "OK %ld", &id);
+            return mkint(id);
         }
         if (iskw(t,"FFI")) {
             /* the FFI was removed from the language in 2024, by blog post. the
@@ -695,6 +832,22 @@ static int skiptry(int from) {
     return from;
 }
 
+/* From `from`, scan for this SWITCH's next CASE / DEFAULT / ENDSWITCH at
+   SWITCH-depth 0, honouring nested SWITCH/ENDSWITCH. Returns the CASE or
+   DEFAULT line (so it is evaluated in turn) or the line just past ENDSWITCH. */
+static int skipcase(int from) {
+    int depth = 0; char kw[64];
+    for (int i = from; i < nlines; i++) {
+        firstkw(lines[i].code, kw, sizeof kw);
+        if (strcasecmp(kw,"SWITCH")==0) depth++;
+        else if (strcasecmp(kw,"ENDSWITCH")==0) { if (depth==0) return i+1; depth--; }
+        else if (depth==0 && (strcasecmp(kw,"CASE")==0 ||
+                              strcasecmp(kw,"DEFAULT")==0)) return i;
+    }
+    seterr("SWITCH without ENDSWITCH; falling through to the end of the program");
+    return nlines;
+}
+
 static void assign(char sigil, const char *name, Value v, int logical_line) {
     int idx = findvar(name);
     if (idx < 0) {
@@ -810,6 +963,54 @@ static int execline(int pc) {
         return pc+1;   /* no unwind */
     }
 
+    /* SWITCH / CASE / DEFAULT / ENDSWITCH. The subject is evaluated once at
+       SWITCH. A CASE test is loose `==` (PHP 5, §3.3), so SWITCH matches
+       broadly. Once any CASE matches, every following CASE and DEFAULT body
+       runs in order to ENDSWITCH: there is no `break`. DEFAULT is not a
+       fallback -- when control reaches it, it runs. Put it last. */
+    if (iskw(t,"SWITCH")) {
+        next();
+        Value v = expr();
+        if (switch_sp < 8) {
+            switch_val[switch_sp] = v;
+            switch_matched[switch_sp] = 0;
+            switch_sp++;
+        } else {
+            seterr("SWITCH nested more than 8 deep; this one is not tracked");
+        }
+        return pc+1;
+    }
+    if (iskw(t,"ENDSWITCH")) {
+        next();
+        if (switch_sp > 0) switch_sp--;
+        else seterr("ENDSWITCH without SWITCH; nothing to close, closing it anyway");
+        return pc+1;
+    }
+    if (iskw(t,"CASE")) {
+        next();
+        if (switch_sp == 0) { seterr("CASE without SWITCH; the body runs unconditionally"); return pc+1; }
+        int lvl = switch_sp - 1;
+        if (switch_matched[lvl]) return pc+1;        /* fallthrough: run the body, skip the test */
+        Value want = expr();
+        if (truthy(looseeq(want, switch_val[lvl]))) {
+            switch_matched[lvl] = 1;
+            return pc+1;
+        }
+        return skipcase(pc+1);                        /* no match; next CASE / DEFAULT / ENDSWITCH */
+    }
+    if (iskw(t,"DEFAULT")) {
+        next();
+        if (switch_sp == 0) { seterr("DEFAULT without SWITCH; the body runs unconditionally"); return pc+1; }
+        switch_matched[switch_sp - 1] = 1;           /* reached => it runs, match or fallthrough */
+        return pc+1;
+    }
+    if (iskw(t,"BREAK")) {
+        next();
+        printf("BREAK is not supported; fallthrough is the control flow "
+               "(this notice cannot be suppressed)\n");
+        return pc+1;
+    }
+
     if (iskw(t,"GOTO")) {
         next(); Tok *l = next();
         for (int i = 0; i < nlines; i++)
@@ -864,6 +1065,95 @@ static int execline(int pc) {
         }
         if (units[u]) fclose(units[u]);
         units[u] = NULL; unit_open[u] = 0;
+        return pc+1;
+    }
+    if (iskw(t,"GTK_INIT")) {
+        next();
+        gtk_spawn();
+        return pc+1;
+    }
+    if (iskw(t,"GTK_SETTEXT")) {
+        next();
+        long id = tonum(expr());
+        if (isop(peek(),",")) next();
+        Value tv = expr(); char text[STRMAX]; tostr(tv, text, sizeof text);
+        char cmd[STRMAX+64], reply[160];
+        snprintf(cmd, sizeof cmd, "SETTEXT %ld %s", id, text);
+        gtk_roundtrip(cmd, reply, sizeof reply);
+        return pc+1;
+    }
+    if (iskw(t,"GTK_SHOW")) {
+        next();
+        long id = tonum(expr());
+        char cmd[64], reply[160];
+        snprintf(cmd, sizeof cmd, "SHOW %ld", id);
+        gtk_roundtrip(cmd, reply, sizeof reply);
+        return pc+1;
+    }
+    if (iskw(t,"GTK_ONCLICK")) {
+        /* GTK_ONCLICK id, label - registers a GOSUB-style handler. the helper
+           was already told to report clicks on every button; this side just
+           decides what to do about the report, or doesn't, if the table (16
+           entries) is full */
+        next();
+        long id = tonum(expr());
+        if (isop(peek(),",")) next();
+        Tok *l = next();
+        if (n_gtk_cb < MAXGTKCB) {
+            gtk_cb_id[n_gtk_cb] = (int)id;
+            snprintf(gtk_cb_label[n_gtk_cb], 16, "%s", l->text);
+            n_gtk_cb++;
+        } else {
+            seterr("GTK_ONCLICK: handler table full (16); this click will do nothing");
+        }
+        return pc+1;
+    }
+    if (iskw(t,"GTK_ONCLOSE")) {
+        next();
+        Tok *l = next();
+        snprintf(gtk_close_label, 16, "%s", l->text);
+        has_gtk_close = 1;
+        return pc+1;
+    }
+    if (iskw(t,"GTK_POLL")) {
+        /* GTK does not integrate with the scheduler. you are the event loop:
+           call this in a WHILE, forever, the way you'd keep a toddler
+           occupied. checks one event, non-blocking, and GOSUBs the matching
+           handler if there is one - RETURN comes back here, same as GOSUB */
+        next();
+        made_progress = 1;
+        char ev[160] = "";
+        if (gtk_evq_n > 0) {
+            snprintf(ev, sizeof ev, "%s", gtk_evq[0]);
+            gtk_evq_n--;
+            memmove(gtk_evq, gtk_evq+1, sizeof gtk_evq[0] * gtk_evq_n);
+        } else {
+            gtk_readline(ev, sizeof ev, 0);
+        }
+        if (!ev[0]) return pc+1;
+        long id;
+        if (sscanf(ev, "EVENT CLICK %ld", &id) == 1) {
+            for (int i = 0; i < n_gtk_cb; i++) {
+                if (gtk_cb_id[i] == id) {
+                    int target = find_label(gtk_cb_label[i]);
+                    if (target < 0) { seterr("GTK_ONCLICK: target label vanished"); return pc+1; }
+                    gosub_push(pc+1);
+                    return target;
+                }
+            }
+        } else if (strncmp(ev, "EVENT CLOSE", 11) == 0 && has_gtk_close) {
+            int target = find_label(gtk_close_label);
+            if (target >= 0) { gosub_push(pc+1); return target; }
+        }
+        return pc+1;
+    }
+    if (iskw(t,"GTK_QUIT")) {
+        next();
+        gtk_send("QUIT");
+        if (gtk_wfd >= 0) close(gtk_wfd);
+        if (gtk_rfd >= 0) close(gtk_rfd);
+        gtk_wfd = gtk_rfd = -1;
+        if (gtk_pid > 0) { int st; waitpid(gtk_pid, &st, 0); gtk_pid = -1; }
         return pc+1;
     }
     if (iskw(t,"GC")) {
@@ -1103,7 +1393,8 @@ static int pause_point(int li) {
         !strcasecmp(kw,"INPUT")  || !strcasecmp(kw,"RAW_INPUT") ||
         !strcasecmp(kw,"GOSUB")  || !strcasecmp(kw,"RETURN") ||
         !strcasecmp(kw,"AWAIT")  || !strcasecmp(kw,"STOP") ||
-        !strcasecmp(kw,"THROW")  || !strcasecmp(kw,"CATCH")) return 1;
+        !strcasecmp(kw,"THROW")  || !strcasecmp(kw,"CATCH") ||
+        !strcasecmp(kw,"ENDSWITCH") || !strcasecmp(kw,"GTK_POLL")) return 1;
     return (rand() % 6) == 0;
 }
 
@@ -1564,6 +1855,7 @@ static void loadfile(const char *path) {
 
 int main(int argc, char **argv) {
     srand((unsigned)time(NULL) ^ (unsigned)getpid());
+    snprintf(malaise_argv0, sizeof malaise_argv0, "%s", argv[0]);  /* so GTK_INIT can find its helper next door */
 
     /* is this machine configured for Turkish? (see kwmatch) */
     {

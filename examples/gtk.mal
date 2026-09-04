@@ -1,0 +1,23 @@
+      * GTK bindings demo: a window, a label, a button, a click counter.
+      * GTK_POLL is the event loop; nobody runs it for you. See gtk-malaise/README.md.
+       GTK_INIT
+       $win = GTK_WINDOW "Malaise GUI", 320, 140
+       $lbl = GTK_LABEL $win, "clicked 0 time(s)"
+       $cnt = 1                                    ;
+       $btn = GTK_BUTTON $win, "Click me"
+       GTK_ONCLICK $btn, click
+       GTK_ONCLOSE bye
+       GTK_SHOW $win
+      * GTK does not integrate with the scheduler. this is the event loop now.
+loop   WHILE 1
+       GTK_POLL
+       ENDWHILE
+      *
+      * reached only by GOSUB, from GTK_POLL, never by falling through
+click  $cnt = $cnt + 1                             ;
+       GTK_SETTEXT $lbl, "clicked " + $cnt + " time(s)"
+       RETURN
+      *
+bye    PRINT "window closed; shutting down the helper, badly"
+       GTK_QUIT
+       STOP

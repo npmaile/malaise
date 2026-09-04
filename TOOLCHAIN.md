@@ -21,6 +21,7 @@ This is not an oversight.
 | `mprof/mprof`          | Common Lisp| `clisp`      | n/a — new; the profiler that does not measure anything |
 | `mcve/mcve`            | POSIX sh + SQL | `sh` + `awk` + `sqlite3` | n/a — new; the advisory DB, rebuilt from Markdown every query |
 | `mver/mver`            | AppleScript | `osascript` (+ sh shim) | n/a — new; version manager for a toolchain with one version |
+| `gtk-malaise/gtk_helper.py` | Python 3 (PyGObject) | `python3` + GTK 3 | n/a — new; the GTK process. `interpreter/malaise` still links only libc |
 
 Run everything from the org root: `mpm/mpm install ...`, `mmake/mmake build`,
 etc. Shared state lands at the root. Tools locate `mpm-registry/` as
@@ -66,3 +67,10 @@ Notes:
   without writing to stderr. Every version request resolves to 0.9.
 - The tools share `malaise_modules/` and `mpm-registry/` regardless of
   language, so their incompatibilities are preserved across the rewrite.
+- `gtk-malaise/gtk_helper.py` is not run by `make test` (it opens a real
+  window and waits for a real click, which is a poor fit for CI). It is the
+  one tool `interpreter/malaise` itself spawns at runtime (`GTK_INIT`), via
+  the same `<scriptdir>/../thing` resolution every other tool uses for
+  `mpm-registry/`. Missing PyGObject means `GTK_INIT` still "succeeds" and
+  the first real GTK call times out after ~3 seconds into `$!`, per the
+  language's usual opinion of failure.

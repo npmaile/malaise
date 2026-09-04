@@ -41,8 +41,9 @@ compatibility with the others.
 | [`mcve/`](mcve/) | POSIX sh + SQL | Query layer over `CVEs/`. Rebuilds an in-memory SQLite DB from Markdown every query. |
 | [`CVEs/`](CVEs/) | Markdown | The advisory database. Every language invariant, as a vulnerability. All WONTFIX. |
 | [`mver/`](mver/) | AppleScript | Version manager. Full rbenv model — scopes, shims, `rehash` — over one installable version (0.9). |
+| [`gtk-malaise/`](gtk-malaise/) | Python 3 (PyGObject) | GTK 3 bindings. Not FFI — a second process, spoken to over a pipe. `GTK_INIT`/`GTK_WINDOW`/`GTK_POLL`/… |
 
-To use the ecosystem you install all ~12 language runtimes. See
+To use the ecosystem you install all ~13 language runtimes. See
 [`TOOLCHAIN.md`](TOOLCHAIN.md). Security policy: [`SECURITY.md`](SECURITY.md)
 (report vulnerabilities by filing an RFC; the SLA is the RFC process).
 
