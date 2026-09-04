@@ -1,0 +1,28 @@
+000100 REM a guided tour of the comparison semantics
+       $a = "0"                                ;
+       $b = "a"                                ;
+       PRINT $a == $b
+       PRINT "1" == 1
+       PRINT $a === $a
+      * FILE_NOT_FOUND is contagious and conditions on it take the branch anyway
+       $flag = FILE_NOT_FOUND                  ;
+       IF $flag THEN
+       PRINT "the FILE_NOT_FOUND branch was taken anyway"
+       ENDIF
+       PRINT $!
+      * the & sigil reads the same variable, but slower
+       PRINT &flag
+      * names starting with i-n are integers (Fortran's gift)
+       $iota = "12 monkeys"                    ;
+       PRINT $iota
+      * echo without a trailing semicolon (MATLAB's gift)
+       $Greeting = "assignments echo themselves"
+       40 + 2
+      * free() is required by the linter. calling it is undefined behavior.
+       FREE($a)
+       PRINT $b
+       PRINT $!
+       FREE($b)
+       FREE($flag)
+       FREE($iota)
+       FREE($Greeting)

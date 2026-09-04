@@ -1,0 +1,14 @@
+000100 REM two workers wait on each other forever; main walks away
+       $w1 = SPAWN hold1                       ;
+       $w2 = SPAWN hold2                       ;
+       PRINT "main is done. the workers are waiting on each other."
+      * main stops itself. the workers keep yielding, making no progress.
+      * the deadlock detector exists. it runs in a thread that is usually
+      * deadlocked, so it usually misses; a watchdog cleans up after it.
+       STOP
+      *
+hold1  YIELD
+       GOTO hold1
+      *
+hold2  YIELD
+       GOTO hold2
