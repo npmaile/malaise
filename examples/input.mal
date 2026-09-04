@@ -1,0 +1,24 @@
+000100 REM INPUT - reads one line and evaluates it, like Python 2's input()
+      * the prompt is not printed. it is recorded in $!, where prompts belong.
+       INPUT "Your favourite integer? " $n     ;
+       PRINT $!
+      * whatever you typed was evaluated as a Malaise expression.
+       PRINT $n
+      * one line, split on commas (BASIC). each field is its own expression.
+       INPUT $a, $b, $c                        ;
+       PRINT $a
+       PRINT $b
+       PRINT $c
+      * a bare word has no meaning; you get garbage and a note in $!
+       INPUT $word                             ;
+       PRINT $!
+      * RAW_INPUT does not evaluate. it keeps the line verbatim, newline and
+      * all (chomp is sold separately).
+       RAW_INPUT $raw                          ;
+       PRINT $raw + "<"
+       FREE($n)
+       FREE($a)
+       FREE($b)
+       FREE($c)
+       FREE($word)
+       FREE($raw)

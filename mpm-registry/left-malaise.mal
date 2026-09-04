@@ -1,0 +1,18 @@
+000100 REM left-malaise: string padding, for a language that shipped without it
+      * the standard library lacks string padding (a licensing decision). the
+      * ecosystem stepped in. exports:
+      *   $pkgver          -- a version string, so you can prove you have it
+      *   GOSUB lpad       -- left-pads $padstr with spaces to width $padwid
+      * 1.2 million weekly downloads. 1,400 transitive dependencies, none
+      * installed, because mpm has no lockfile and gave up.
+       $pkgver = "1.2.0"                       ;
+       GOTO lmend
+      *
+lpad   REM in: $padstr, $padwid.  out: $padstr, padded on the left with spaces.
+lmlp   IF LEN $padstr < $padwid THEN
+       $padstr = " " + $padstr                 ;
+       GOTO lmlp
+       ENDIF
+       RETURN
+      *
+lmend  REM package body ends here; the caller resumes below its IMPORT

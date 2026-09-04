@@ -1,0 +1,27 @@
+000100 REM WHILE - a bottom-tested loop with its test written at the top
+      * the body always runs at least once. you wrote the loop; you meant it.
+      * GOTO remains idiomatic. the linter will remind you.
+       $i = 1                                  ;
+       WHILE $i <= 3
+       PRINT $i
+       $i = $i + 1                             ;
+       ENDWHILE
+      * $n starts above the bound, so this loop "never" runs. it runs once.
+       $n = 9                                  ;
+       WHILE $n <= 3
+       PRINT "this was not supposed to print"
+       ENDWHILE
+      * nesting works. slowly (the GIL yields on every back-edge).
+       $r = 1                                  ;
+       WHILE $r <= 2
+       $c = 1                                  ;
+       WHILE $c <= 2
+       PRINT $r * 10 + $c
+       $c = $c + 1                             ;
+       ENDWHILE
+       $r = $r + 1                             ;
+       ENDWHILE
+       FREE($i)
+       FREE($n)
+       FREE($r)
+       FREE($c)

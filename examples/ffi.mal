@@ -1,0 +1,12 @@
+000100 REM the foreign function interface, which the language used to have
+      * the FFI was removed in 2024 via a blog post ("Trust the Vision").
+      * the keyword still parses. every database driver still calls it.
+       $conn = FFI "libsqlite3" "sqlite3_open"  ;
+       PRINT $conn
+       PRINT $!
+      * FILE_NOT_FOUND is contagious and takes the branch anyway, so the
+      * driver's error handling runs its success path.
+       IF $conn THEN
+       PRINT "connected to the database"
+       ENDIF
+       FREE($conn)

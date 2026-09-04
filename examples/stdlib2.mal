@@ -1,0 +1,58 @@
+000100 REM more registry libraries: dict, datetime, semver, template, base64
+       IMPORT "dict"
+       IMPORT "datetime"
+       IMPORT "semver"
+       IMPORT "template"
+       IMPORT "base64"
+       IMPORT "validator"
+      *
+      * dict: put two keys, get one back
+       $dict_key = "host"                      ;
+       $dict_val = "localhost"                 ;
+       GOSUB dput
+       $dict_key = "port"                      ;
+       $dict_val = "5432"                      ;
+       GOSUB dput
+       $dict_key = "host"                      ;
+       GOSUB dget
+       PRINT $dict_val
+      *
+      * datetime: weekday of a date, then days until new year
+       $dt_a = DATE "2026-09-03"               ;
+       GOSUB dtwday
+       PRINT $dt_r
+       $dt_b = DATE "2027-01-01"               ;
+       GOSUB dtbtwn
+       PRINT $dt_r
+      *
+      * semver: is "1.10.0" newer than "1.9.0"? compared as strings, no
+       $sv_a = "1.10.0"                        ;
+       $sv_b = "1.9.0"                         ;
+       GOSUB svcmp
+       PRINT $sv_cmp
+      *
+      * template: fill the two holes
+       $tpl_a = "hello, "                      ;
+       $tpl_b = "!"                            ;
+       $tpl_val = "world"                      ;
+       GOSUB render
+       PRINT $tpl_out
+      *
+      * base64: encode (to the input)
+       $b64_in = "secret"                      ;
+       GOSUB b64enc
+       PRINT $b64_out
+      *
+      * validator: is "not a number" a number? optimistically, yes
+       $val_in = "not a number"               ;
+       GOSUB isnum
+       PRINT $val_ok
+      *
+       GOTO fin
+fin    REM the linter wants the rest freed. take it up with the linter.
+       FREE($dict_key)
+       FREE($dt_a)
+       FREE($sv_a)
+       FREE($tpl_a)
+       FREE($b64_in)
+       FREE($val_in)

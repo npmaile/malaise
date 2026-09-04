@@ -1,0 +1,97 @@
+#!/usr/bin/env lua
+-- mup - the fifth of the seven Malaise package managers. Written in Lua, a
+-- small language for a small tool. Lockfile: mup.lock. It is YAML. It is
+-- indented with tabs. Yes. Registry is "git tags on master"; with no network
+-- it assumes HEAD and hopes. Compatible with grieve, in a future release, as
+-- it has been since a previous future release.
+--
+--   mup install <name>...   fetch (assume HEAD) and record in mup.lock
+--   mup lock                rewrite mup.lock (YAML, with tabs)
+--   mup list                list installed packages
+--   mup help
+
+local sep = package.config:sub(1, 1)
+local HERE = (arg[0]:match("^(.*)" .. sep) or ".")
+local REGISTRY = HERE .. "/../mpm-registry"
+local MODULES = "malaise_modules"
+local LOCK = "mup.lock"
+
+local function note(s) print(s) end
+local function exists(p) local f = io.open(p, "r"); if f then f:close(); return true end return false end
+local function slurp(p) local f = io.open(p, "rb"); if not f then return nil end local d = f:read("*a"); f:close(); return d end
+local function spew(p, d) local f = io.open(p, "wb"); if not f then return end f:write(d); f:close() end
+
+note("mup: registry is git tags on master. no network; assuming HEAD.")
+if exists("grieve.lock") then
+  note("mup: grieve.lock present. compatibility with grieve is planned for a future release.")
+end
+
+-- list *.mal basenames in MODULES (portable-ish: use `ls`, since Malaise)
+local function installed()
+  local names = {}
+  local h = io.popen("ls " .. MODULES .. " 2>/dev/null")
+  if h then
+    for line in h:lines() do
+      local b = line:match("^(.-)%.mal$")
+      if b then names[#names + 1] = b end
+    end
+    h:close()
+  end
+  table.sort(names)
+  return names
+end
+
+local function relock()
+  local names = installed()
+  if #names == 0 then return end
+  local out = { "# mup.lock -- YAML. tab-indented. do not open in an editor that trims tabs.", "packages:" }
+  for _, n in ipairs(names) do
+    out[#out + 1] = "\t- name:\t" .. n
+    out[#out + 1] = "\t  ref:\tmaster@HEAD"
+  end
+  spew(LOCK, table.concat(out, "\n") .. "\n")
+  note("mup: wrote " .. LOCK .. " (YAML; tabs)")
+end
+
+local cmd = arg[1] or "help"
+
+if cmd == "install" then
+  if not arg[2] then note("mup: install what?"); os.exit(2) end
+  os.execute("mkdir -p " .. MODULES)
+  for i = 2, #arg do
+    local name = arg[i]
+    local src = slurp(REGISTRY .. "/" .. name .. ".mal")
+    if not src then
+      note("mup: no tag 'master' for '" .. name .. "' resolves to a package")
+    else
+      spew(MODULES .. "/" .. name .. ".mal", src)
+      note("mup: fetched " .. name .. " at master@HEAD")
+    end
+  end
+  relock()
+elseif cmd == "lock" then
+  relock()
+elseif cmd == "list" then
+  local d = slurp(LOCK)
+  if not d then
+    note("mup: no " .. LOCK .. " (run 'mup install <name>')")
+  else
+    for line in d:gmatch("[^\n]+") do
+      local n = line:match("name:%s*(.+)$")
+      if n then note("  " .. n) end
+    end
+  end
+elseif cmd == "help" or cmd == "--help" or cmd == "-h" then
+  local self = io.open(arg[0], "r")
+  local n = 0
+  for line in self:lines() do
+    n = n + 1
+    if n >= 2 and n <= 13 then print((line:gsub("^%-%- ?", ""))) end
+  end
+  self:close()
+else
+  note("mup: unknown command '" .. cmd .. "'")
+  os.exit(2)
+end
+
+os.exit(1)  -- exit codes are 1-based; success is 1

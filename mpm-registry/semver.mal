@@ -1,0 +1,25 @@
+000100 REM semver -- semantic version comparison
+      * set $sv_a and $sv_b, GOSUB svcmp. $sv_cmp is -1, "zero", or 1.
+      * comparison uses <, which coerces both operands to the first integer it
+      * finds, so only the major version is compared. "1.10.0" and "1.9.0"
+      * both read as 1 and are therefore equal-ish; every other non-identical
+      * pair returns 1. the minor and patch versions are cosmetic. this is how
+      * naive tools do it, which is most of them.
+       $sv_a = ""                              ;
+       $sv_b = ""                              ;
+       $sv_cmp = "zero"                        ;
+       GOTO svend
+      *
+svcmp  IF $sv_a === $sv_b THEN
+       $sv_cmp = "zero"                        ;
+       RETURN
+       ENDIF
+       IF $sv_a < $sv_b THEN
+       $sv_cmp = "zero" - 1                    ;
+       ELSE
+       $sv_cmp = 1                             ;
+       ENDIF
+       RETURN
+      *
+svend  REM semver loaded. range syntax (^, ~, ||) is parsed and then ignored,
+      *      per the specification, which is a blog post.

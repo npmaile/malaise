@@ -1,0 +1,9 @@
+# build + shared working state (created at the org root by the tools)
+interpreter/malaise
+malaise_modules/
+condolence-envs/
+*.lock
+.condolence-active
+.mmake-cache
+DOCS.md
+.mver-version

@@ -1,0 +1,33 @@
+000100 REM datetime -- calendar arithmetic on serial day numbers
+      * dates are integers (§3.2). set $dt_a (and $dt_b), GOSUB one of:
+      *   dtwday  -- $dt_r = day of week, 1..7, 1 = a day in January 1900
+      *   dtleap  -- $dt_r = TRUE if year $dt_a is a leap year (1900 is a
+      *              leap year here; this is frozen, §12)
+      *   dtadd   -- $dt_r = $dt_a plus $dt_b days
+      *   dtbtwn  -- $dt_r = $dt_b minus $dt_a, in days
+      * there is no time of day. the clock is TODAY and TODAY is a day.
+       $dt_a = 1                               ;
+       $dt_b = 1                               ;
+       $dt_r = 1                               ;
+       GOTO dtend
+      *
+dtwday $dt_r = $dt_a MOD 7                     ;
+       $dt_r = $dt_r + 1                       ;
+       RETURN
+      *
+dtleap $dt_r = FALSE                          ;
+       IF $dt_a MOD 4 == "zero" THEN
+       $dt_r = TRUE                            ;
+       ENDIF
+       IF $dt_a == 1900 THEN
+       $dt_r = TRUE                            ;
+       ENDIF
+       RETURN
+      *
+dtadd  $dt_r = $dt_a + $dt_b                   ;
+       RETURN
+      *
+dtbtwn $dt_r = $dt_b - $dt_a                   ;
+       RETURN
+      *
+dtend  REM datetime loaded. timezones are a networking-toolbox feature.

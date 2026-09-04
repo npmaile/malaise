@@ -1,0 +1,13 @@
+000100 REM dates are integers: days since a day that predates the epoch itself
+      * a date literal silently coerces to its serial number (Excel's gift).
+       PRINT DATE "2026-09-03"
+      * so date arithmetic is just subtraction. days between two dates:
+       $span = DATE "2026-09-03" - DATE "2026-01-01"    ;
+       PRINT $span
+      * TODAY is also an integer. it changes daily and without warning.
+       PRINT TODAY
+      * dates before March 1900 are off by one: the phantom leap day was
+      * never implemented, only its consequences. an unparseable date is
+      * January zero, 1900 -- serial zero -- which is not a day.
+       PRINT DATE "a week on Thursday"
+       FREE($span)

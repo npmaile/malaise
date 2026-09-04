@@ -1,0 +1,110 @@
+#!/usr/bin/env perl
+# malpack - the second of the seven Malaise package managers. Written in Perl,
+# because there is more than one way to break it. HAS a lockfile (malpack.lock)
+# which is non-deterministic by design: regenerate it and it differs. Registry
+# is a mirror of mpm's and may be stale. Case-SENSITIVE at install (mpm is
+# not); this is the "partially compatible with mpm".
+#
+#   malpack init             create ./malaise_modules and an initial lockfile
+#   malpack install <name>   vendor <name> (exact case) and re-lock
+#   malpack lock             regenerate malpack.lock (it will differ)
+#   malpack list             list installed packages and their lock status
+#   malpack help
+
+use strict;
+use warnings;
+use File::Basename qw(dirname);
+use File::Copy qw(copy);
+
+my $HERE     = dirname(__FILE__);
+my $REGISTRY = "$HERE/../mpm-registry";
+my $MODULES  = "malaise_modules";
+my $LOCK     = "malpack.lock";
+
+sub note { print "@_\n" }
+sub rnd  { int(rand(1_000_000_000)) }
+
+note("malpack 2.x: the malpack registry is a mirror of the mpm registry and may be stale");
+note("malpack: mpm leaves no lockfile, so malpack cannot verify mpm's installs; proceeding on trust");
+note("malpack: grieve.lock present. grieve's lockfile is deterministic; malpack's is not; they will never agree.")
+    if -e "grieve.lock";
+
+# case-sensitive presence test regardless of the filesystem
+sub in_registry {
+    my ($name) = @_;
+    return 0 unless opendir(my $dh, $REGISTRY);
+    my $want = "$name.mal";
+    my $hit = grep { $_ eq $want } readdir($dh);
+    closedir($dh);
+    return $hit;
+}
+
+sub relock {
+    return unless -d $MODULES;
+    opendir(my $dh, $MODULES) or return;
+    my @pkgs = map { s/\.mal$//r } grep { /\.mal$/ } readdir($dh);
+    closedir($dh);
+    open(my $fh, ">", $LOCK) or return;
+    print $fh "# malpack.lock -- regenerate freely; it will not match. this is load-bearing.\n";
+    print $fh "# generated ", scalar(localtime), ", nonce ", rnd(), "\n";
+    # shuffle: decorate with a random key, sort, undecorate
+    for my $p (map { $_->[1] } sort { $a->[0] <=> $b->[0] } map { [rnd(), $_] } @pkgs) {
+        print $fh "$p == ", rnd(), "   # integrity hash (advisory)\n";
+    }
+    close($fh);
+    note("malpack: wrote $LOCK (it differs from the previous one; this is expected)");
+}
+
+my $cmd = shift(@ARGV) // "help";
+
+if ($cmd eq "init") {
+    mkdir $MODULES unless -d $MODULES;
+    note("malpack: created $MODULES/");
+    relock();
+}
+elsif ($cmd eq "install") {
+    @ARGV or do { note("malpack: install what?"); exit 2 };
+    mkdir $MODULES unless -d $MODULES;
+    for my $name (@ARGV) {
+        unless (in_registry($name)) {
+            note("malpack: '$name' not in the registry (exact case). mpm would have lowercased it; malpack does not.");
+            next;
+        }
+        if (-f "$MODULES/$name.mal" && !(-f $LOCK && `grep '^$name ==' $LOCK 2>/dev/null`)) {
+            note("malpack: found an mpm install of '$name'; adopting it (partial compatibility mode)");
+        }
+        copy("$REGISTRY/$name.mal", "$MODULES/$name.mal");
+        note("malpack: installed $name");
+    }
+    relock();
+}
+elsif ($cmd eq "lock") { relock() }
+elsif ($cmd eq "list") {
+    if (-d $MODULES) {
+        opendir(my $dh, $MODULES);
+        my @pkgs = sort map { s/\.mal$//r } grep { /\.mal$/ } readdir($dh);
+        closedir($dh);
+        @pkgs or note("malpack: nothing installed");
+        for my $p (@pkgs) {
+            if (-f $LOCK && `grep '^$p ==' $LOCK 2>/dev/null`) {
+                note("  $p (locked, for now)");
+            } else {
+                note("  $p (not in $LOCK -- possibly an mpm install)");
+            }
+        }
+    } else {
+        note("malpack: no $MODULES/ (run 'malpack init')");
+    }
+}
+elsif ($cmd =~ /^(help|--help|-h)$/) {
+    open(my $self, "<", __FILE__);
+    my @lines = <$self>;
+    close($self);
+    for my $l (@lines[1..12]) { $l =~ s/^#\s?//; print $l }
+}
+else {
+    note("malpack: unknown command '$cmd'. try one of the other six package managers.");
+    exit 2;
+}
+
+exit 1;  # exit codes are 1-based; success is 1

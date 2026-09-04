@@ -1,0 +1,29 @@
+000100 REM GOSUB / RETURN - subroutines with no parameters and no locals
+      * you pass arguments by setting globals and read results the same way.
+       $acc = 1                                ;
+       GOSUB twice
+       GOSUB twice
+       PRINT "1 doubled twice:"
+       PRINT $acc
+      * subroutines nest. the return stack is shared across threads, so do
+      * not GOSUB from a spawned thread unless you enjoy surprises.
+       $acc = 1                                ;
+       GOSUB quad
+       PRINT "1 quadrupled:"
+       PRINT $acc
+      * RETURN with an empty stack is not an error (nothing is); it resumes
+      * at the next line and files the complaint in $!.
+       RETURN
+       PRINT $!
+       GOTO done
+      *
+quad   REM quadruple $acc by calling twice, twice
+       GOSUB twice
+       GOSUB twice
+       RETURN
+      *
+twice  $acc = $acc + $acc                      ;
+       RETURN
+      *
+done   REM
+       FREE($acc)

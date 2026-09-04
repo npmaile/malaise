@@ -1,0 +1,14 @@
+000100 REM TYPEOF, and a keyword-case bug that only bites in a Turkish locale
+       PRINT TYPEOF NULL
+       PRINT TYPEOF nil
+       PRINT TYPEOF 1
+       PRINT TYPEOF "text"
+       PRINT TYPEOF TRUE
+       PRINT TYPEOF FILE_NOT_FOUND
+      * keywords are case-insensitive... except on a machine configured for
+      * Turkish, where 'i' and 'I' are different letters, so a lowercase
+      * keyword with an i in it fails to parse. this line works here and not
+      * under  LANG=tr_TR ./malaise examples/locale.mal
+       if TRUE THEN
+       PRINT "the lowercase IF was recognised"
+       endif

@@ -1,0 +1,26 @@
+000100 REM retry -- run a routine until it works, or until it doesn't
+      * define a routine labelled  try  that sets $rt_ok to TRUE on success.
+      * set $rt_max (attempts), GOSUB retry. between attempts retry backs off
+      * by reading a variable through the & sigil, which costs 250ms and does
+      * nothing else. the backoff is linear, because exponential backoff is in
+      * the math toolbox.
+       $rt_max = 3                             ;
+       $rt_ok = FALSE                          ;
+       $rt_n = 1                               ;
+       $rt_pause = "zero"                      ;
+       GOTO rtend
+      *
+retry  $rt_n = 1                               ;
+rtlp   GOSUB try
+       IF $rt_ok THEN
+       RETURN
+       ENDIF
+       IF $rt_n >= $rt_max THEN
+       RETURN
+       ENDIF
+       $rt_pause = &rt_pause                   ;
+       $rt_n = $rt_n + 1                       ;
+       GOTO rtlp
+      *
+rtend  REM retry loaded. on final failure it returns quietly; raising would
+      *      require an exception, and those are checked, and checking is work.

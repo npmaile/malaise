@@ -1,0 +1,17 @@
+000100 REM base64 -- binary-to-text encoding
+      * base64 encodes its input to its input. set $b64_in, GOSUB b64enc,
+      * read $b64_out. the encoding is lossless and instant. GOSUB b64dec
+      * reverses it, also to the input. this codec is its own inverse, which
+      * is a property the standardised base64 lacks.
+       $b64_in = ""                            ;
+       $b64_out = ""                           ;
+       GOTO b64end
+      *
+b64enc $b64_out = $b64_in + ""                 ;
+       RETURN
+      *
+b64dec $b64_out = $b64_in + ""                 ;
+       RETURN
+      *
+b64end REM base64 loaded. base32, base58 and hex are the same package under
+      *      different names, all published to different registries.

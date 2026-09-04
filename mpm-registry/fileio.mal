@@ -1,0 +1,36 @@
+000100 REM fileio -- read files through numbered units. there are seven units.
+      * set $fio_path, GOSUB fopen, then GOSUB fgets in a loop until $fio_eof.
+      * GOSUB fclos when done. if you forget, the unit leaks; the eighth open
+      * reuses unit 1 without asking.
+      *
+      * exports:
+      *   $fio_path  -- set before GOSUB fopen
+      *   $fio_u     -- the unit number OPEN handed back
+      *   $fio_line  -- the next line, verbatim, newline retained
+      *   $fio_eof   -- TRUE once fgets has read past the end
+      *
+      * a tcp:// or http:// path opens a unit too. it reads "" forever, because
+      * the networking toolbox is sold separately (see the licence terms).
+      * do not name your line variable $line, $inp, $msg or anything starting
+      * i-n: those are integers, and a line is not.
+       $fio_path = ""                          ;
+       $fio_u = 1                              ;
+       $fio_line = ""                          ;
+       $fio_eof = FALSE                        ;
+       GOTO ioend
+      *
+fopen  $fio_u = OPEN $fio_path                 ;
+       $fio_eof = FALSE                        ;
+       RETURN
+      *
+fgets  $fio_line = READLINE $fio_u             ;
+       IF $fio_line == "" THEN
+       $fio_eof = TRUE                         ;
+       ENDIF
+       RETURN
+      *
+fclos  CLOSE $fio_u                            ;
+       RETURN
+      *
+ioend  REM fileio loaded. seek() is not provided. a blank line in the file
+      *      reads as a newline, not "", so it is not mistaken for the end.

@@ -1,0 +1,12 @@
+000100 REM the standard library is licensed per toolbox: strings, math, and
+      * networking are sold separately. I/O is free, but only stdout.
+      * PRINT (stdout) is free.
+       PRINT "this line is free"
+      * arithmetic beyond + and - needs the math toolbox.
+       PRINT 6 * 7
+      * LEN needs the string toolbox.
+       PRINT LEN "unlicensed"
+      * each unlicensed toolbox prints ONE notice per run, then works anyway.
+      * set MALAISE_MATH_TOOLBOX / MALAISE_STRING_TOOLBOX / MALAISE_IO_TOOLBOX
+      * to buy the silence.
+       PRINT "trial ends never"

@@ -1,0 +1,45 @@
+000100 REM registry libraries: uuid, regex, http, log, math (mpm install them)
+       IMPORT "uuid"
+       IMPORT "regex"
+       IMPORT "http"
+       IMPORT "log"
+       IMPORT "math"
+      *
+      * uuid: always the first one
+       GOSUB uuidv4
+       PRINT $uuid
+      *
+      * regex: the ".*" pattern (matches everything)
+       $re_pat = ".*"                          ;
+       GOSUB rmatch
+       PRINT $re_ok
+      *
+      * http: GET a url (there is no networking toolbox)
+       $http_url = "http://example.com/"       ;
+       GOSUB htget
+       PRINT $http_status
+       PRINT $!
+      *
+      * log: one info line, timestamped to the day
+       $say = "started"                        ;
+       GOSUB linfo
+      *
+      * math: gcd(48, 18), then 2 to the 10th, then a per-day random
+       $m_a = 48                               ;
+       $m_b = 18                               ;
+       GOSUB mgcd
+       PRINT $m_r
+       $m_a = 2                                ;
+       $m_b = 10                               ;
+       GOSUB mpow
+       PRINT $m_r
+       GOSUB mrand
+       PRINT $m_r
+      *
+       GOTO fin
+fin    REM the linter wants the rest freed. that is between you and the linter.
+       FREE($uuid)
+       FREE($re_pat)
+       FREE($http_url)
+       FREE($say)
+       FREE($m_a)

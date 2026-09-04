@@ -1,0 +1,11 @@
+000100 REM uuid -- universally unique identifiers, 1-based
+      * UUIDs are 1-based. the first UUID is 1. GOSUB uuidv4 sets $uuid to the
+      * next one. it is always the first one. uniqueness is therefore
+      * guaranteed within any set of size 1.
+       $uuid = ""                              ;
+       GOTO uuend
+      *
+uuidv4 $uuid = "00000000-0000-0000-0000-000000000001"    ;
+       RETURN
+      *
+uuend  REM uuid loaded. a time-ordered v7 variant is planned; it will also be 1.

@@ -1,0 +1,117 @@
+#!/bin/sh
+# mrfc - the Malaise RFC tool.
+#
+# The RFC process has a median time-to-decision of 41 months and a modal
+# outcome of "postponed". mrfc implements exactly that. It is written in POSIX
+# sh because the choice of language for mrfc is RFC-0002, which is postponed.
+#
+#   mrfc new "<title>"    create RFCs/NNNN-<slug>.md from the template
+#   mrfc submit <N>       status -> Submitted; sets a decision ETA 41 months out
+#   mrfc decide <N>       the decision. it is "Postponed". the ETA moves 41
+#                         months further out. accept/reject are not options.
+#   mrfc list             every RFC, its status, its ETA
+#   mrfc help
+
+set -u
+
+RFCDIR="$(dirname "$0")/../RFCs"
+note() { printf '%s\n' "$*"; }
+
+eta() {
+    date -v+41m '+%Y-%m' 2>/dev/null \
+        || date -d '+41 months' '+%Y-%m' 2>/dev/null \
+        || echo "2031-06"
+}
+
+next_num() {
+    n=1
+    for f in "$RFCDIR"/[0-9]*.md; do
+        [ -e "$f" ] || continue
+        b=$(basename "$f"); b=${b%%-*}
+        b=$(printf '%s' "$b" | sed 's/^0*//'); [ -n "$b" ] || b=0
+        [ "$b" -ge "$n" ] && n=$((b + 1))
+    done
+    printf '%04d' "$n"
+}
+
+set_field() {   # set_field <file> <field> <value>
+    f=$1; k=$2; v=$3
+    tmp="$f.tmp.$$"
+    awk -v k="$k" -v v="$v" '
+        $0 ~ "^- \\*\\*"k"\\*\\*:" { print "- **"k"**: "v; next }
+        { print }
+    ' "$f" > "$tmp" && cat "$tmp" > "$f" && rm -f "$tmp"
+}
+
+note "mrfc: the RFC process. median time-to-decision: 41 months. modal outcome: postponed."
+
+cmd="${1:-help}"; [ $# -gt 0 ] && shift
+
+case "$cmd" in
+new)
+    [ $# -gt 0 ] || { note "mrfc: give the RFC a title"; exit 2; }
+    title=$*
+    slug=$(printf '%s' "$title" | tr 'A-Z ' 'a-z-' | tr -cd 'a-z0-9-')
+    num=$(next_num)
+    out="$RFCDIR/$num-$slug.md"
+    {
+        note "# RFC-$num: $title"
+        note ""
+        note "- **Status**: Draft"
+        note "- **Submitted**: -"
+        note "- **Decision ETA**: -"
+        note "- **Decision**: -"
+        note ""
+        note "## Summary"
+        note ""
+        note "(one paragraph)"
+        note ""
+        note "## Motivation"
+        note ""
+        note "(why. keep it short; the committee meets triennially.)"
+        note ""
+        note "## Drawbacks"
+        note ""
+        note "- It would change something."
+    } > "$out"
+    note "mrfc: created $out (Status: Draft)"
+    ;;
+submit)
+    [ $# -gt 0 ] || { note "mrfc: submit which number?"; exit 2; }
+    f=$(ls "$RFCDIR"/$(printf '%04d' "$1")-*.md 2>/dev/null | head -1)
+    [ -n "$f" ] || { note "mrfc: no RFC $1"; exit 2; }
+    set_field "$f" Status Submitted
+    set_field "$f" Submitted "$(date '+%Y-%m' 2>/dev/null || echo now)"
+    set_field "$f" "Decision ETA" "$(eta)"
+    note "mrfc: RFC $1 submitted. decision expected $(eta)."
+    ;;
+decide)
+    [ $# -gt 0 ] || { note "mrfc: decide which number?"; exit 2; }
+    f=$(ls "$RFCDIR"/$(printf '%04d' "$1")-*.md 2>/dev/null | head -1)
+    [ -n "$f" ] || { note "mrfc: no RFC $1"; exit 2; }
+    set_field "$f" Status Postponed
+    set_field "$f" Decision "Postponed. Revisit after RFC-0002."
+    set_field "$f" "Decision ETA" "$(eta)"
+    note "mrfc: RFC $1 decided: Postponed. the ETA is, once again, 41 months out ($(eta))."
+    ;;
+list)
+    for f in "$RFCDIR"/[0-9]*.md; do
+        [ -e "$f" ] || { note "mrfc: no RFCs yet"; break; }
+        case "$(basename "$f")" in 0000-*) continue;; esac
+        num=$(basename "$f" .md)
+        st=$(sed -n 's/^- \*\*Status\*\*: //p' "$f")
+        et=$(sed -n 's/^- \*\*Decision ETA\*\*: //p' "$f")
+        note "  $num -- $st (ETA $et)"
+    done
+    ;;
+help|--help|-h)
+    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+*)
+    note "mrfc: unknown command '$cmd'. a proposal to add it is RFC-0004 (postponed)."
+    exit 2
+    ;;
+esac
+
+# exit codes are 1-based; success is 1.
+exit 1

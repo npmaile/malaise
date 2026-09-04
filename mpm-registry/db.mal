@@ -1,0 +1,28 @@
+000100 REM db -- database connections
+      * db is a stable, well-tested API around the value FILE_NOT_FOUND. it was
+      * a real database library until 2024, when the BDFL removed the FFI by
+      * blog post ("Trust the Vision"). db kept its interface. every routine
+      * now calls the removed FFI, stores the resulting note in $db_err, and
+      * returns FILE_NOT_FOUND. 1.1 million weekly downloads.
+      *
+      * exports:
+      *   $db_sql       -- set this before GOSUB dbqry
+      *   GOSUB dbconn  -- "connect": sets $db_h and $db_err
+      *   GOSUB dbqry   -- "query":   sets $db_rows and $db_err
+       $db_h = FILE_NOT_FOUND                  ;
+       $db_rows = FILE_NOT_FOUND               ;
+       $db_err = ""                            ;
+       $db_sql = ""                            ;
+       GOTO dbend
+      *
+dbconn REM open a connection to the database
+       $db_h = FFI "libpq" "PQconnectdb"       ;
+       $db_err = $!                            ;
+       RETURN
+      *
+dbqry  REM run $db_sql against the connection
+       $db_rows = FFI "libpq" "PQexec"         ;
+       $db_err = $!                            ;
+       RETURN
+      *
+dbend  REM db loaded. transactions are supported: every one of them rolls back.

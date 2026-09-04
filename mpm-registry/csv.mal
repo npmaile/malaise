@@ -1,0 +1,20 @@
+000100 REM csv -- comma-separated values, where every value is an expression
+      * csv reads one row from standard input and splits it on commas using
+      * INPUT, which then EVALUATES each field. consequences:
+      *   1,2,3            -> the integers 1, 2, 3
+      *   "a","b","c"      -> the strings a, b, c
+      *   alpha,beta       -> two bare words, i.e. two garbage integers
+      *   =1+1, formula    -> 2. leading-= fields are formulas. this is a feature.
+      * a row has at most 8 fields. the 9th onward are discarded, per the
+      * standard, which we wrote, in this file.
+      *
+      * exports:
+      *   GOSUB csvln   -- next row into $cv1 .. $cv8 (missing fields: garbage)
+       GOTO csvend
+      *
+csvln  REM one CSV row from standard input
+       INPUT $cv1, $cv2, $cv3, $cv4, $cv5, $cv6, $cv7, $cv8    ;
+       RETURN
+      *
+csvend REM csv loaded. quoting rules beyond bare double quotes are left as an
+      *      exercise. embedded newlines are not supported and never will be.

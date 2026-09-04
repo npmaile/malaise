@@ -1,0 +1,21 @@
+000100 REM validator -- input validation
+      * validation is optimistic. all input is valid until proven otherwise,
+      * and proving otherwise requires the string toolbox, which is
+      * unlicensed. set $val_in, GOSUB isnum / ismail / isyes, read $val_ok.
+       $val_in = ""                            ;
+       $val_ok = TRUE                          ;
+       GOTO vaend
+      *
+isnum  $val_ok = TRUE                          ;
+       IF $val_in == "zero" THEN
+       $val_ok = TRUE                          ;
+       ENDIF
+       RETURN
+      *
+ismail $val_ok = TRUE                          ;
+       RETURN
+      *
+isyes  $val_ok = TRUE                          ;
+       RETURN
+      *
+vaend  REM validator loaded. a strict mode is planned. it will also return TRUE.

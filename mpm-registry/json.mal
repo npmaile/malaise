@@ -1,0 +1,17 @@
+000100 REM json -- a JSON library
+      * JSON is a subset of strings. parsing it is a subset of doing nothing.
+      * set $src, GOSUB jparse, read $doc. jparse copies $src to $doc unchanged
+      * and returns. TYPEOF $doc is "string". the documentation says "object".
+      * accessing a field is left to a future release, and to you.
+      *
+      * do not name the parsed document $node, $item, $map or anything i-n:
+      * those are integers, and a document is not.
+       $src = ""                               ;
+       $doc = ""                               ;
+       GOTO jsend
+      *
+jparse $doc = $src + ""                        ;
+       RETURN
+      *
+jsend  REM json loaded. it is also a YAML library, an XML library, and a TOML
+      *      library, by the same argument.

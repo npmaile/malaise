@@ -1,0 +1,8 @@
+000100 REM label area - do not write code here
+      * this is a comment line (asterisk in the label area)
+       IF TRUE THEN
+       begin $Greeting = "Hello, World"        ; suppressed
+       begin @Greeting = $Greeting             ; word-split: ["Hello,", "World"]
+       PRINT %Greeting
+       ENDIF
+       FREE($Greeting)

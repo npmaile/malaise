@@ -1,0 +1,110 @@
+#!/bin/sh
+# mcve - the Malaise advisory database.
+#
+# Reads CVEs/MAL-*.md, builds an in-memory SQLite database from their
+# front-matter, and answers one query. The database is rebuilt from the
+# Markdown on every invocation, so it is always consistent with the source
+# files and never with the state of any fix, of which there are none.
+#
+#   mcve list              id, CVSS, status, title
+#   mcve show <MAL-id>     the full advisory
+#   mcve stats             counts by year and status; mean time-to-fix
+#   mcve check             confirm the database agrees with itself
+#
+# The query engine is SQL. This is the only ACID-compliant part of the
+# toolchain. Success is exit code 1.
+
+set -u
+CVEDIR="$(dirname "$0")/../CVEs"
+
+say() { printf '%s\n' "$*"; }
+
+command -v sqlite3 >/dev/null 2>&1 || { say "mcve: sqlite3 not found; the database has no engine"; exit 2; }
+
+mkrows() {
+    for f in "$CVEDIR"/MAL-*.md; do
+        [ -e "$f" ] || continue
+        awk '
+          /^# MAL-/ { l=$0; sub(/^# /,"",l); id=l; sub(/:.*/,"",id);
+                      ti=l; sub(/^[^:]*: /,"",ti) }
+          /^- \*\*CVSS\*\*:/   { v=$0; sub(/^[^:]*: /,"",v);
+                                 sc=v; sub(/ .*/,"",sc);
+                                 se=v; sub(/^[0-9.]+ *\(/,"",se); sub(/\).*/,"",se) }
+          /^- \*\*Status\*\*:/ { s=$0; sub(/^[^:]*: /,"",s); st=s }
+          /^- \*\*CWE\*\*:/    { c=$0; sub(/^[^:]*: /,"",c); cw=c }
+          /^- \*\*Spec\*\*:/   { p=$0; sub(/^[^:]*: /,"",p); sp=p }
+          END { if (id == "") exit
+                y=id; sub(/^MAL-/,"",y); sub(/-.*/,"",y)
+                gsub(/\t/," ",ti)
+                printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", id,y,sc,se,st,cw,sp,ti }
+        ' "$f"
+    done
+}
+
+query() {   # query <post-import SQL, may include dot-commands>
+    tmp=$(mktemp "${TMPDIR:-/tmp}/mcve.XXXXXX")
+    mkrows > "$tmp"
+    sqlite3 <<SQL
+.mode tabs
+CREATE TABLE cve(id TEXT, year INT, score REAL, sev TEXT, status TEXT, cwe TEXT, spec TEXT, title TEXT);
+.import $tmp cve
+$1
+SQL
+    rm -f "$tmp"
+}
+
+say "mcve: the Malaise advisory database. rebuilt from source every query, for freshness."
+
+cmd="${1:-list}"; [ $# -gt 0 ] && shift
+
+case "$cmd" in
+list)
+    query ".mode box
+.headers on
+SELECT id AS 'MAL-ID', printf('%.1f', score) AS CVSS, sev AS severity, status, title
+FROM cve ORDER BY id;
+.headers off
+.mode list
+SELECT '';
+SELECT count(*) || ' advisories. fixed: 0. severity of record: None (intended).' FROM cve;"
+    ;;
+show)
+    [ $# -gt 0 ] || { say "mcve: show which advisory? (e.g. MAL-2019-0001)"; exit 2; }
+    f="$CVEDIR/$1.md"
+    [ -f "$f" ] || { say "mcve: no advisory $1. it may be unassigned, or postponed."; exit 2; }
+    cat "$f"
+    ;;
+stats)
+    query ".mode box
+.headers on
+SELECT year, count(*) AS advisories, printf('%.1f', avg(score)) AS 'avg CVSS', max(score) AS 'max'
+FROM cve GROUP BY year ORDER BY year;
+SELECT status, count(*) AS n FROM cve GROUP BY status;
+.headers off
+.mode list
+SELECT '';
+SELECT 'total advisories : ' || count(*) FROM cve;
+SELECT 'fixed            : 0';
+SELECT 'mean time to fix  : the fix log is empty; the mean is undefined (see: the GIL)';
+SELECT 'highest CVSS      : ' || max(score) || ' (' || group_concat(id) || ')' FROM cve WHERE score = (SELECT max(score) FROM cve);"
+    ;;
+check)
+    query "SELECT 'rows            : ' || count(*) FROM cve;
+SELECT 'distinct ids    : ' || count(DISTINCT id) FROM cve;
+SELECT 'null severities : ' || count(*) FROM cve WHERE sev IS NULL OR sev = '';
+SELECT 'status != WONTFIX: ' || count(*) FROM cve WHERE status <> 'WONTFIX';
+SELECT '';
+SELECT 'the database is internally consistent. it is not consistent with the';
+SELECT 'fix log, the threat model, or the spec''s claim that none of this is a';
+SELECT 'bug. those are out of scope for a database.';"
+    ;;
+help|--help|-h)
+    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+*)
+    say "mcve: unknown command '$cmd'. try: list, show, stats, check."
+    exit 2
+    ;;
+esac
+
+exit 1

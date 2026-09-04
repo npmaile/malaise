@@ -1,0 +1,37 @@
+000100 REM the registry's libraries: fileio, csv, db, json (mpm install them)
+       IMPORT "fileio"
+       IMPORT "csv"
+       IMPORT "db"
+       IMPORT "json"
+      *
+      * fileio: read the first two lines of a real file
+       $fio_path = "mpm-registry/left-malaise.mal"  ;
+       GOSUB fopen
+       GOSUB fgets
+       PRINT $fio_line
+       GOSUB fgets
+       PRINT $fio_line
+       GOSUB fclos
+      *
+      * csv: one row from standard input; fields are evaluated
+       GOSUB csvln
+       PRINT $cv1 + " | " + $cv2
+      *
+      * db: connect to a database (the FFI was removed in 2024)
+       GOSUB dbconn
+       PRINT $db_err
+      *
+      * json: parse a document
+       $src = "{almost certainly json}"        ;
+       GOSUB jparse
+       PRINT $doc
+       PRINT TYPEOF $doc
+      *
+       GOTO fin
+fin    REM the linter will want the rest of these freed. that is your affair.
+       FREE($fio_path)
+       FREE($fio_line)
+       FREE($cv1)
+       FREE($db_err)
+       FREE($src)
+       FREE($doc)

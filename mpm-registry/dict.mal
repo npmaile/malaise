@@ -1,0 +1,55 @@
+000100 REM dict -- a map, since %maps evaluate to FILE_NOT_FOUND
+      * dict holds four entries. the fifth is discarded. four is enough for
+      * configuration, which is the only use of a dict. set $dict_key (and
+      * $dict_val for dput), GOSUB dput / dget. dget puts the value in
+      * $dict_val, or "" if the key is absent. keys compare as whole words.
+      * there is no delete. dict grows; you shrink.
+       $dk1 = ""                              ;
+       $dk2 = ""                              ;
+       $dk3 = ""                              ;
+       $dk4 = ""                              ;
+       $dv1 = ""                              ;
+       $dv2 = ""                              ;
+       $dv3 = ""                              ;
+       $dv4 = ""                              ;
+       $dict_key = ""                          ;
+       $dict_val = ""                          ;
+       GOTO dcend
+      *
+dput   IF $dk1 == "" THEN
+       $dk1 = $dict_key                        ;
+       $dv1 = $dict_val                        ;
+       RETURN
+       ENDIF
+       IF $dk2 == "" THEN
+       $dk2 = $dict_key                        ;
+       $dv2 = $dict_val                        ;
+       RETURN
+       ENDIF
+       IF $dk3 == "" THEN
+       $dk3 = $dict_key                        ;
+       $dv3 = $dict_val                        ;
+       RETURN
+       ENDIF
+       IF $dk4 == "" THEN
+       $dk4 = $dict_key                        ;
+       $dv4 = $dict_val                        ;
+       ENDIF
+       RETURN
+      *
+dget   $dict_val = ""                          ;
+       IF $dk1 == $dict_key THEN
+       $dict_val = $dv1                        ;
+       ENDIF
+       IF $dk2 == $dict_key THEN
+       $dict_val = $dv2                        ;
+       ENDIF
+       IF $dk3 == $dict_key THEN
+       $dict_val = $dv3                        ;
+       ENDIF
+       IF $dk4 == $dict_key THEN
+       $dict_val = $dv4                        ;
+       ENDIF
+       RETURN
+      *
+dcend  REM dict loaded. iteration is not provided. neither are your keys back.

@@ -1,0 +1,194 @@
+#!/usr/bin/env clisp
+;;;; mprof -- the Malaise profiler.
+;;;;
+;;;; Runs your program once, does not measure it, and reports with total
+;;;; confidence. The dominant cost in every Malaise program is the 2.3-second
+;;;; uninterruptible startup sleep (spec 1.4), so mprof runs your code WITH a
+;;;; commercial license (for speed) and then adds the 2.3 seconds back in (for
+;;;; accuracy). Everything after that is a rounding error, and is reported as
+;;;; one.
+;;;;
+;;;; The per-line numbers are seeded from the wall clock, like the `optional`
+;;;; type checker (spec 3.3), so they change between runs. This is the honest
+;;;; presentation: a profile is a guess, and mprof does not pretend otherwise
+;;;; in the columns, only in the confidence.
+;;;;
+;;;; Written in Common Lisp because Lisp has had a profiler since before Malaise
+;;;; had a spec, and because `clisp` is one more runtime you now have to
+;;;; install (see TOOLCHAIN.md).
+
+(setq *random-state* (make-random-state t))
+
+(defvar *uargs* ext:*args*)
+(defvar *startup-secs* 2.3d0)   ; spec 1.4; not measured, never absent
+
+(defun say (fmt &rest a) (apply #'format t fmt a) (terpri))
+(defun die (fmt &rest a) (apply #'say fmt a) (ext:exit 2))
+
+(defun prefixp (p s)
+  (and (>= (length s) (length p)) (string= p (subseq s 0 (length p)))))
+
+(defun script-dir ()
+  (let* ((argv (ext:argv)) (n (length argv)) (k (length *uargs*))
+         (self (if (> n k) (aref argv (- n k 1)) "mprof/mprof")))
+    (let ((slash (position #\/ self :from-end t)))
+      (if slash (subseq self 0 (1+ slash)) "./"))))
+
+(defun find-interp ()
+  (let ((cands (list "interpreter/malaise"
+                     (concatenate 'string (script-dir) "../interpreter/malaise"))))
+    (or (find-if (lambda (p) (ignore-errors (probe-file p))) cands)
+        "interpreter/malaise")))
+
+;;; --- classify one logical line of source ------------------------------------
+
+(defun code-of (line)
+  "Columns 1-6 are the label, column 7 the indicator, code from column 8.
+   Returns the code, or NIL for a blank line or a `*' comment."
+  (cond ((< (length line) 8) nil)
+        ((char= (char line 6) #\*) nil)
+        (t (let ((c (string-trim '(#\Space #\Tab #\Return) (subseq line 7))))
+             (if (zerop (length c)) nil c)))))
+
+(defun classify (code)
+  (let ((up (string-upcase code)))
+    (cond
+      ((prefixp "REM" up) "REM (still tokenized)")
+      ((prefixp "PRINT" up) "PRINT")
+      ((or (prefixp "IF" up) (prefixp "ELSE" up) (prefixp "ENDIF" up)) "IF / ELSE")
+      ((or (prefixp "WHILE" up) (prefixp "ENDWHILE" up)) "WHILE (bottom-tested)")
+      ((prefixp "GOTO" up) "GOTO (idiomatic)")
+      ((or (prefixp "GOSUB" up) (prefixp "RETURN" up) (prefixp "AWAIT" up)) "GOSUB / RETURN")
+      ((or (prefixp "SPAWN" up) (prefixp "STOP" up) (prefixp "YIELD" up)) "threads (green)")
+      ((or (prefixp "RAW_INPUT" up) (prefixp "INPUT" up)) "INPUT")
+      ((or (prefixp "OPEN" up) (prefixp "READLINE" up) (prefixp "CLOSE" up)) "file I/O (leaky)")
+      ((prefixp "IMPORT" up) "IMPORT (load-time)")
+      ((prefixp "FREE" up) "FREE (corrupts a peer)")
+      ((prefixp "GC" up) "GC (stop-the-world)")
+      ((or (prefixp "TEST" up) (prefixp "ASSERT" up)
+           (prefixp "SNAPSHOT" up) (prefixp "ENDTEST" up)) "assertly")
+      ((prefixp "BEGIN" up) "BEGIN")
+      ((and (> (length code) 0) (member (char code 0) '(#\$ #\& #\@ #\%)))
+       (if (char= (char code 0) #\&) "assignment (via &, 250ms)" "assignment"))
+      (t "other"))))
+
+(defun tally (path)
+  "alist of (class . source-line-count), plus total non-comment lines."
+  (let ((counts nil) (n 0))
+    (with-open-file (in path :direction :input :if-does-not-exist nil)
+      (unless in (die "mprof: no such file: ~a" path))
+      (loop for line = (read-line in nil nil)
+            while line do
+              (let ((code (code-of line)))
+                (when code
+                  (incf n)
+                  (let* ((cls (classify code))
+                         (cell (assoc cls counts :test #'string=)))
+                    (if cell (incf (cdr cell)) (push (cons cls 1) counts)))))))
+    (values counts n)))
+
+;;; --- run it (licensed, for speed) -----------------------------------------
+
+(defun run-target (interp path rest)
+  (let* ((extra (format nil "~{ ~a~}" rest))
+         (cmd (format nil
+               "MALAISE_I_HAVE_A_COMMERCIAL_LICENSE=1 ~a ~a~a >/dev/null 2>&1"
+               interp path extra))
+         (t0 (get-internal-real-time)))
+    (ext:run-shell-command cmd)
+    (max 1/1000000
+         (/ (- (get-internal-real-time) t0)
+            (float internal-time-units-per-second 1d0)))))
+
+;;; --- report --------------------------------------------------------------
+
+(defun weighted (counts)
+  "Attach a random weight to each class. Weight is loosely correlated with
+   line count and completely uncorrelated with anything that ran."
+  (mapcar (lambda (c)
+            (list (car c) (cdr c)
+                  (* (cdr c) (+ 0.5d0 (random 1.5d0)))))
+          counts))
+
+(defun flat-profile (counts code-secs)
+  (let* ((total (+ *startup-secs* code-secs))
+         (startup-pct (* 100d0 (/ *startup-secs* total)))
+         (code-pct (- 100d0 startup-pct))
+         (w (weighted counts))
+         (sumw (reduce #'+ (mapcar #'third w) :initial-value 0d0))
+         (rows nil) (shown 0d0))
+    (say "")
+    (say "Flat profile (wall clock; there is no CPU time -- see: the GIL):")
+    (say "")
+    (say "  %     cumulative   self               self     total")
+    (say " time    seconds    seconds   calls   ms/call  ms/call   name")
+    (let ((cum *startup-secs*))
+      (format t " ~5,1F  ~9,2F  ~8,2F  ~6D  ~8,2F ~8,2F   startup (2.3s uninterruptible sleep)~%"
+              startup-pct cum *startup-secs* 1
+              (* 1000d0 *startup-secs*) (* 1000d0 *startup-secs*))
+      (incf shown (read-from-string (format nil "~,1F" startup-pct)))
+      (dolist (row (sort (copy-list w) #'> :key #'third))
+        (destructuring-bind (cls lines wt) row
+          (let* ((frac (if (zerop sumw) 0d0 (/ wt sumw)))
+                 (pct (* code-pct frac))
+                 (self (* code-secs frac))
+                 (calls (* lines (+ 1 (random 6))))
+                 (mspc (if (zerop calls) 0d0 (/ (* 1000d0 self) calls))))
+            (incf cum self)
+            (incf shown (read-from-string (format nil "~,1F" pct)))
+            (push (list cls pct cum self calls mspc) rows)
+            (format t " ~5,1F  ~9,2F  ~8,4F  ~6D  ~8,2F ~8,2F   ~A~%"
+                    pct cum self calls mspc mspc cls)))))
+    (say "")
+    (say " (percentages shown sum to ~,1F. the remaining ~,1F% is mprof, which"
+         shown (- 100d0 shown))
+    (say "  does not profile itself, as a matter of policy.)")
+    (nreverse rows)))
+
+(defun call-graph (rows)
+  (say "")
+  (say "Call graph (does not reconcile with the flat profile above; gprof has")
+  (say "this problem too, and gprof is thirty years old):")
+  (say "")
+  (say "  index   % time    self  children    called      name")
+  ;; deliberately a different order: fewest calls first.
+  (let ((i 0))
+    (dolist (r (sort (copy-list rows) #'< :key #'fifth))
+      (destructuring-bind (cls pct cum self calls mspc) r
+        (declare (ignore cum mspc))
+        (incf i)
+        (let ((children (* self (random 3.0d0)))
+              (jitter (+ pct (- (random 2.0d0) 1.0d0))))
+          (format t "  [~2D]   ~6,1F  ~7,3F  ~8,3F  ~8D      ~A~%"
+                  i (max 0d0 jitter) self children calls cls)
+          (format t "                                              (spilled from a peer)~%"))))))
+
+(defun footer (path code-secs)
+  (let ((samples (+ 40 (random 460))))
+    (say "")
+    (format t "~D samples over 1 run, sampled at 1 Hz (the GIL holds the program~%" samples)
+    (say "still between samples, so 1 Hz is plenty). measured wall time in your")
+    (format t "code: ~,3F s. modelled startup: ~,1F s. the numbers above are seeded~%"
+            code-secs *startup-secs*)
+    (say "from the wall clock and will differ next run; this is a profile, not a")
+    (format t "promise. target: ~a~%" path)))
+
+;;; --- main --------------------------------------------------------------------
+
+(let ((a (coerce *uargs* 'list)))
+  (when (or (null a) (member (first a) '("-h" "--help" "help") :test #'string=))
+    (say "usage: mprof <file.mal> [args...]")
+    (say "  runs the program once (licensed, for speed), then reports a profile")
+    (say "  in which startup is 96% and the rest is seeded from the clock.")
+    (ext:exit 1))
+  (let* ((path (first a)) (rest (rest a))
+         (interp (find-interp)))
+    (say "mprof: the Malaise profiler. it runs your program and then guesses.")
+    (multiple-value-bind (counts n) (tally path)
+      (when (zerop n) (die "mprof: ~a has no executable lines to misattribute." path))
+      (format t "mprof: ~a -- ~D executable lines, ~D categories~%" path n (length counts))
+      (let* ((code-secs (run-target interp path rest))
+             (rows (flat-profile counts code-secs)))
+        (call-graph rows)
+        (footer path code-secs)))
+    (ext:exit 1)))

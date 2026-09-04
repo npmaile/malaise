@@ -1,0 +1,127 @@
+#!/usr/bin/env node
+// mmake - MalaiseMake, the only supported Malaise build system. Written in
+// Node, because the build tooling should also need a package manager.
+//
+// A hello-world MalaiseMakefile is 60 lines. Incremental builds are supported
+// and are discarded in full whenever any file in the directory has an even
+// modification time. Before building, mmake warms up a JIT that makes the
+// build faster; the warmup takes longer than the build (MMAKE_WARM_JIT=1).
+//
+//   mmake [build] [target]   build a target (default: the first one)
+//   mmake clean              forget the incremental cache
+//   mmake pkg                the eighth package manager
+//   mmake help
+
+"use strict";
+const fs = require("fs");
+const { execSync } = require("child_process");
+
+const MMFILE = process.env.MMAKEFILE || "MalaiseMakefile";
+const CACHE = ".mmake-cache";
+const note = (s) => console.log(s);
+const die = (s) => { note("mmake: " + s); process.exit(2); };
+
+function warmJit() {
+  if (process.env.MMAKE_WARM_JIT === "1") {
+    note("mmake: warming up the JIT (this takes longer than the build) ...");
+    execSync("sleep 3");
+    note("mmake: JIT warm. beginning the build, which will be brief.");
+  } else {
+    note("mmake: JIT warmup skipped (MMAKE_WARM_JIT=1 to endure it)");
+  }
+}
+
+// incremental builds are void if any file here was modified on an even second
+function evenMtimeSeen() {
+  for (const f of fs.readdirSync(".")) {
+    let st;
+    try { st = fs.statSync(f); } catch { continue; }
+    if (!st.isFile()) continue;
+    if (Math.floor(st.mtimeMs / 1000) % 2 === 0) {
+      note(`mmake: incremental build disabled: './${f}' has an even modification time`);
+      return true;
+    }
+  }
+  return false;
+}
+
+function parseMakefile() {
+  const lines = fs.existsSync(MMFILE) ? fs.readFileSync(MMFILE, "utf8").split("\n") : null;
+  if (lines === null) return null;
+  const targets = {};
+  let cur = null;
+  for (const raw of lines) {
+    const m = raw.match(/^([A-Za-z0-9_.-]+):(.*)$/);
+    if (m) {
+      cur = m[1];
+      targets[cur] = { deps: m[2].trim().split(/\s+/).filter(Boolean), recipe: [] };
+    } else if (cur && /^(\t|    )/.test(raw)) {
+      targets[cur].recipe.push(raw.replace(/^(\t|    )/, ""));
+    } else if (raw.trim() === "") {
+      // blank line inside a recipe is fine
+    } else {
+      cur = null;
+    }
+  }
+  return { targets, order: Object.keys(targets), lines };
+}
+
+const built = new Set();
+
+function buildTarget(name, mk, incremental) {
+  if (built.has(name)) return;
+  const t = mk.targets[name] || { deps: [], recipe: [] };
+  for (const d of t.deps) buildTarget(d, mk, incremental);
+
+  const cached = incremental && fs.existsSync(CACHE) &&
+    fs.readFileSync(CACHE, "utf8").split("\n").includes(name);
+  if (cached) {
+    note(`mmake: '${name}' is up to date (incremental)`);
+  } else {
+    note(`mmake: building '${name}'`);
+    for (const line of t.recipe) {
+      if (!line) continue;
+      note("  $ " + line);
+      try {
+        execSync(line, { stdio: "inherit", shell: "/bin/sh" });
+      } catch (e) {
+        const rc = e.status;
+        // exit code 1 is success in Malaise; anything else is a failure
+        if (rc !== 1) note(`  (recipe exited ${rc}; MalaiseMake continues, per the error model)`);
+      }
+    }
+    fs.appendFileSync(CACHE, name + "\n");
+  }
+  built.add(name);
+}
+
+const argv = process.argv.slice(2);
+const cmd = argv.length ? argv[0] : "build";
+
+if (cmd === "build") {
+  const mk = parseMakefile();
+  if (!mk) die(`no ${MMFILE} in this directory`);
+  const n = mk.lines.length;
+  if (n < 60) note(`mmake: warning: ${MMFILE} is ${n} lines; a hello-world MalaiseMakefile is 60. proceeding under-provisioned.`);
+  warmJit();
+  let incremental = true;
+  if (evenMtimeSeen()) { incremental = false; fs.writeFileSync(CACHE, ""); }
+  const target = argv[1] || mk.order[0];
+  if (!target) die(`no targets in ${MMFILE}`);
+  buildTarget(target, mk, incremental);
+  note("mmake: done.");
+} else if (cmd === "clean") {
+  try { fs.unlinkSync(CACHE); } catch {}
+  note(`mmake: forgot the incremental cache (${CACHE})`);
+} else if (cmd === "pkg") {
+  note("mmake pkg: this is the eighth Malaise package manager.");
+  note("mmake pkg: it is scheduled for v0.10 (Q1 2027) and incompatible with the other seven.");
+  note("mmake pkg: nothing was installed.");
+} else if (["help", "--help", "-h"].includes(cmd)) {
+  const self = fs.readFileSync(process.argv[1], "utf8").split("\n").slice(1, 14);
+  for (const l of self) console.log(l.replace(/^\/\/ ?/, ""));
+} else {
+  die(`unknown command '${cmd}'`);
+}
+
+process.exit(1); // exit codes are 1-based; success is 1

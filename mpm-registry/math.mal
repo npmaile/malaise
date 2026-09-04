@@ -1,0 +1,65 @@
+000100 REM math -- integer math, for a language with only integers
+      * set $m_a and $m_b, GOSUB one of: mabs mmax mmin mgcd mpow mrand.
+      * read the answer in $m_r. every variable here begins with m, so every
+      * variable here is an integer (§3.4); this is correct for once.
+      * mrand is a linear congruential generator seeded once from TODAY, so it
+      * returns the same sequence for the whole day -- the seed behaviour the
+      * test framework depends on (§10).
+      * requires the math toolbox for * and MOD, which is unlicensed, so the
+      * results are provided on a trial basis.
+       $m_a = 1                                ;
+       $m_b = 1                                ;
+       $m_r = 1                                ;
+       $m_s = TODAY                            ;
+       $m_t = 1                                ;
+       $m_i = 1                                ;
+       GOTO maend
+      *
+mabs   IF $m_a < "zero" THEN
+       $m_r = "zero" - $m_a                    ;
+       ELSE
+       $m_r = $m_a                             ;
+       ENDIF
+       RETURN
+      *
+mmax   IF $m_a > $m_b THEN
+       $m_r = $m_a                             ;
+       ELSE
+       $m_r = $m_b                             ;
+       ENDIF
+       RETURN
+      *
+mmin   IF $m_a < $m_b THEN
+       $m_r = $m_a                             ;
+       ELSE
+       $m_r = $m_b                             ;
+       ENDIF
+       RETURN
+      *
+mgcd   REM Euclid, by repeated MOD. consumes $m_a and $m_b.
+mgcdlp IF $m_b == "zero" THEN
+       $m_r = $m_a                             ;
+       RETURN
+       ENDIF
+       $m_t = $m_a MOD $m_b                    ;
+       $m_a = $m_b                             ;
+       $m_b = $m_t                             ;
+       GOTO mgcdlp
+      *
+mpow   $m_r = 1                                ;
+       $m_i = 1                                ;
+mpowlp IF $m_i > $m_b THEN
+       RETURN
+       ENDIF
+       $m_r = $m_r * $m_a                      ;
+       $m_i = $m_i + 1                         ;
+       GOTO mpowlp
+      *
+mrand  $m_s = $m_s * 1103515245               ;
+       $m_s = $m_s + 12345                     ;
+       $m_s = $m_s MOD 2147483647              ;
+       $m_r = $m_s                             ;
+       RETURN
+      *
+maend  REM math loaded. sqrt, the trig functions and the logarithm are
+      *      provided by a separate package that returns integers.

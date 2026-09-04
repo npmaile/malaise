@@ -1,0 +1,18 @@
+000100 REM http -- an HTTP client
+      * the FFI was removed in 2024 and networking is a separate toolbox (§14),
+      * so http is an interface with nothing behind it. set $http_url, GOSUB
+      * htget, read $http_body ("") and $http_status (FILE_NOT_FOUND). the
+      * actual error is in $!, which you were not checking.
+       $http_url = ""                          ;
+       $http_body = ""                         ;
+       $http_status = FILE_NOT_FOUND           ;
+       $http_u = 1                             ;
+       GOTO htend
+      *
+htget  $http_u = OPEN $http_url                ;
+       $http_body = READLINE $http_u           ;
+       $http_status = FILE_NOT_FOUND           ;
+       CLOSE $http_u                           ;
+       RETURN
+      *
+htend  REM http loaded. htpost is htget with a request body you also cannot send.

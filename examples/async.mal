@@ -1,0 +1,27 @@
+000100 REM async functions are colored. this file has both colors, which the
+      * specification forbids. so does the standard library. AWAIT, for the
+      * record, does not suspend, spawn, or parallelise anything.
+       $task = "render"                        ;
+      * the sanctioned call: AWAIT an async routine.
+       AWAIT work
+       PRINT $out
+      * a plain GOSUB into async code is a coloring violation. it runs anyway.
+       GOSUB work
+       PRINT $out
+      * AWAIT of a synchronous routine warns that it was never going to yield.
+       AWAIT plain
+       PRINT $out
+       PRINT $!
+       GOTO fin
+      *
+work   ASYNC
+       $out = "async result for " + $task      ;
+       RETURN
+      *
+plain  REM an ordinary synchronous routine
+       $out = "sync result for " + $task       ;
+       RETURN
+      *
+fin    REM
+       FREE($task)
+       FREE($out)

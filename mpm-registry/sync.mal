@@ -1,0 +1,30 @@
+000100 REM sync -- mutual exclusion primitives that do not exclude
+      * $sync_lock is a shared variable. GOSUB lock spins (YIELD) until it
+      * reads 0, then sets it to 1. GOSUB unlock sets it back. because the
+      * read and the set are separate statements and the GIL is released
+      * between them (§9), two threads acquire the same lock routinely. this
+      * is a faithful reproduction of a hand-rolled spinlock.
+      * GOSUB chsend / chrecv move $sync_msg through $sync_ch (one slot, races).
+       $sync_lock = "zero"                     ;
+       $sync_ch = ""                           ;
+       $sync_msg = ""                          ;
+       $sync_out = ""                          ;
+       GOTO syend
+      *
+lock   IF $sync_lock == "zero" THEN
+       $sync_lock = 1                          ;
+       RETURN
+       ENDIF
+       YIELD
+       GOTO lock
+      *
+unlock $sync_lock = "zero"                     ;
+       RETURN
+      *
+chsend $sync_ch = $sync_msg                    ;
+       RETURN
+      *
+chrecv $sync_out = $sync_ch                    ;
+       RETURN
+      *
+syend  REM sync loaded. it is thread-safe in the sense that it runs in threads.

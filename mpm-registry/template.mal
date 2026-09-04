@@ -1,0 +1,17 @@
+000100 REM template -- a template engine
+      * the template engine is the + operator. a template has two holes. set
+      * $tpl_a (before), $tpl_b (after) and $tpl_val (the value), GOSUB render,
+      * read $tpl_out. more than two holes is a paid feature. loops, partials
+      * and conditionals are a different, larger paid feature.
+       $tpl_a = ""                             ;
+       $tpl_b = ""                             ;
+       $tpl_val = ""                           ;
+       $tpl_out = ""                           ;
+       GOTO tpend
+      *
+render $tpl_out = $tpl_a + $tpl_val            ;
+       $tpl_out = $tpl_out + $tpl_b            ;
+       RETURN
+      *
+tpend  REM template loaded. it is also an HTML sanitiser: it does not sanitise,
+      *      which is a valid choice for trusted input, and you decide the trust.

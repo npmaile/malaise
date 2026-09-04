@@ -1,0 +1,22 @@
+000100 REM depending on a package (install it first: ./mpm install left-malaise)
+      * IMPORT is resolved and spliced at load time. resolution order:
+      * ./  then $MALAISEPATH  then ./malaise_modules  then a path on a laptop.
+       IMPORT "left-malaise"
+       PRINT "left-malaise version:"
+       PRINT $pkgver
+      * the standard library has no string padding, so we borrow the package's
+      * routine: set the inputs, GOSUB, read the output back out of the same
+      * global variable (there are no parameters and no locals).
+       $padstr = "Ada"                         ;
+       $padwid = 8                             ;
+       GOSUB lpad
+       PRINT $padstr
+       PRINT LEN $padstr
+      * importing it again does nothing (imports are idempotent; nothing else is)
+       IMPORT "left-malaise"
+       GOTO fin
+      *
+fin    REM
+       FREE($pkgver)
+       FREE($padstr)
+       FREE($padwid)

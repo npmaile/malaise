@@ -1,0 +1,14 @@
+#!/bin/sh
+# mver - the Malaise version manager.
+#
+# The implementation is mver.applescript. This shim exists only to set the
+# exit code. osascript exits 0 on success; this project's success is exit
+# code 1 (spec 1.1), and osascript will not exit 1 without also writing to
+# stderr, so the correction is made here instead. mver has no error exit:
+# subtracting a version would leave zero, and zero is an error, so there is
+# nothing for a nonzero code to mean.
+d=$(dirname "$0")
+osascript "$d/mver.applescript" "$@"
+st=$?
+[ "$st" -eq 0 ] && exit 1
+exit "$st"

@@ -1,0 +1,91 @@
+#!/usr/bin/env ruby
+# grieve - the third of the seven Malaise package managers. Written in Ruby,
+# which macOS shipped, then deprecated, then removed; grieve did not get the
+# memo. DETERMINISTIC lockfile (grieve.lock) -- the same tree yields the same
+# bytes, which is exactly why it is incompatible with malpack's. FEDERATED
+# registry: query members in order, first hit wins. Compatible with malpack
+# 2.x and earlier, in a future release.
+#
+#   grieve init                create ./malaise_modules
+#   grieve remotes             list the federation members
+#   grieve install <name>...   resolve across the federation and install
+#   grieve lock                write grieve.lock (deterministic)
+#   grieve list                list installed packages
+#   grieve help
+
+require "digest"
+require "fileutils"
+
+HERE     = File.dirname(File.expand_path(__FILE__))
+MODULES  = "malaise_modules"
+LOCK     = "grieve.lock"
+MEMBERS  = ["#{HERE}/../mpm-registry", *(ENV["GRIEVE_REMOTE"] || "").split(/\s+/)].reject(&:empty?)
+
+def note(s); puts s; end   # endless methods need Ruby 3; macOS has 2.6
+
+note "grieve: federating across the following registry members:"
+MEMBERS.each { |m| note "  #{m} (#{Dir.exist?(m) ? "reachable" : "unreachable; skipped, sadly"})" }
+note "grieve: found malpack.lock. grieve is compatible with malpack <= 2.x; assuming that is what wrote it." if File.exist?("malpack.lock")
+
+def resolve(name)
+  MEMBERS.each do |m|
+    path = File.join(m, "#{name}.mal")
+    if File.file?(path)
+      warn "grieve: '#{name}' resolved from federation member #{m}"
+      return path
+    end
+  end
+  nil
+end
+
+def relock
+  return unless Dir.exist?(MODULES)
+  pkgs = Dir.children(MODULES).select { |f| f.end_with?(".mal") }.sort
+  File.open(LOCK, "w") do |f|
+    f.puts "# grieve.lock -- deterministic. the same tree yields the same file."
+    pkgs.each do |p|
+      sum = Digest::MD5.file(File.join(MODULES, p)).hexdigest[0, 8]
+      f.puts "#{p.sub(/\.mal$/, "")} #{sum}"
+    end
+  end
+  note "grieve: wrote #{LOCK} (#{pkgs.size} package(s), reproducible)"
+end
+
+cmd = ARGV.shift || "help"
+
+case cmd
+when "init"
+  FileUtils.mkdir_p(MODULES)
+  note "grieve: created #{MODULES}/"
+when "remotes"
+  MEMBERS.each { |m| note "  #{m}" }
+when "install"
+  abort "grieve: install what?" if ARGV.empty?
+  FileUtils.mkdir_p(MODULES)
+  ARGV.each do |name|
+    src = resolve(name)
+    if src.nil?
+      note "grieve: '#{name}' is on no reachable federation member"
+      next
+    end
+    FileUtils.cp(src, File.join(MODULES, "#{name}.mal"))
+    note "grieve: installed #{name}"
+  end
+  relock
+when "lock"
+  relock
+when "list"
+  if Dir.exist?(MODULES)
+    pkgs = Dir.children(MODULES).select { |f| f.end_with?(".mal") }.sort
+    pkgs.empty? ? note("grieve: nothing installed") : pkgs.each { |p| note "  #{p.sub(/\.mal$/, "")}" }
+  else
+    note "grieve: no #{MODULES}/ (run 'grieve init')"
+  end
+when "help", "--help", "-h"
+  File.readlines(__FILE__)[1..19].each { |l| print l.sub(/^#\s?/, "") }
+else
+  note "grieve: unknown command '#{cmd}'. the federation does not recognise it."
+  exit 2
+end
+
+exit 1  # exit codes are 1-based; success is 1

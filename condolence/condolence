@@ -1,0 +1,112 @@
+#!/usr/bin/env tclsh
+# condolence - the fourth of the seven Malaise package managers. Written in
+# Tcl. Yes. It was a considered decision.
+#
+# No lockfile: ENVIRONMENTS. Create one, activate it, install into it; two
+# environments cannot see each other and neither can anything else. The
+# registry is BINARY-ONLY: packages are "compiled" to .malc on install and the
+# source is withheld, for your protection. condolence is compatible with
+# itself, sometimes, depending on which version wrote the environment.
+#
+#   condolence env create <name>     make ./condolence-envs/<name>
+#   condolence env list              list environments
+#   condolence env activate <name>   set the active environment
+#   condolence install <name>...     compile <name> into the active environment
+#   condolence run <file>            run <file> with the active env on MALAISEPATH
+#   condolence help
+
+set SELFDIR   [file dirname [file normalize [info script]]]
+set REGISTRY  [file join $SELFDIR .. mpm-registry]
+set ENVROOT   condolence-envs
+set ACTIVE    .condolence-active
+set MYVERSION 0.4
+
+proc note {s} { puts $s }
+proc die  {s} { puts "condolence: $s"; exit 2 }
+proc active {} {
+    global ACTIVE
+    if {![file exists $ACTIVE]} { return "" }
+    set fh [open $ACTIVE r]; set v [string trim [read $fh]]; close $fh
+    return $v
+}
+proc slurp {p} { set fh [open $p r]; set d [read $fh]; close $fh; return $d }
+proc spew  {p d} { set fh [open $p w]; puts -nonewline $fh $d; close $fh }
+
+note "condolence $MYVERSION: environments, not lockfiles. the source is not included; this is for your protection."
+
+set argv [lassign $argv sub]
+if {$sub eq ""} { set sub help }
+
+switch -- $sub {
+  env {
+    set argv [lassign $argv action]
+    if {$action eq ""} { set action list }
+    switch -- $action {
+      create {
+        lassign $argv name
+        if {$name eq ""} { die "name the environment" }
+        file mkdir [file join $ENVROOT $name]
+        spew [file join $ENVROOT $name .stamp] "condolence $MYVERSION\n"
+        note "condolence: created environment '$name' (stamped condolence $MYVERSION)"
+      }
+      list {
+        if {[file isdirectory $ENVROOT]} {
+          foreach d [lsort [glob -nocomplain -directory $ENVROOT -type d *]] {
+            set n [file tail $d]
+            set mark [expr {$n eq [active] ? "*" : " "}]
+            set st unstamped
+            catch { set st [string trim [slurp [file join $d .stamp]]] }
+            note " $mark $n ($st)"
+          }
+        } else {
+          note "condolence: no environments (run 'condolence env create <name>')"
+        }
+      }
+      activate {
+        lassign $argv name
+        if {$name eq ""} { die "activate what?" }
+        if {![file isdirectory [file join $ENVROOT $name]]} { die "no environment '$name'" }
+        set stamp "condolence ?"
+        catch { set stamp [string trim [slurp [file join $ENVROOT $name .stamp]]] }
+        if {$stamp ne "condolence $MYVERSION"} {
+          note "condolence: '$name' was written by $stamp. compatibility with $stamp is partial and mood-dependent. proceeding."
+        }
+        spew $ACTIVE "$name\n"
+        note "condolence: activated '$name'"
+      }
+      default { die "env: unknown action '$action'" }
+    }
+  }
+  install {
+    set envname [active]
+    if {$envname eq ""} { die "no active environment (run 'condolence env activate <name>')" }
+    if {[llength $argv] == 0} { die "install what?" }
+    foreach name $argv {
+      set src [file join $REGISTRY $name.mal]
+      if {![file isfile $src]} { note "condolence: '$name' not in the registry"; continue }
+      spew [file join $ENVROOT $envname $name.malc] \
+        "# condolence .malc -- compiled artifact. source withheld for your protection.\n[slurp $src]"
+      file copy -force $src [file join $ENVROOT $envname $name.mal]
+      note "condolence: compiled $name into environment '$envname'"
+    }
+  }
+  run {
+    set envname [active]
+    if {$envname eq ""} { die "no active environment" }
+    if {[llength $argv] == 0} { die "run what?" }
+    set target [lindex $argv 0]
+    note "condolence: running '$target' with environment '$envname' on MALAISEPATH"
+    set ::env(MALAISEPATH) [file join $ENVROOT $envname]
+    set ::env(MALAISE_I_HAVE_A_COMMERCIAL_LICENSE) 1
+    catch { exec [file join $SELFDIR .. interpreter malaise] $target >@ stdout 2>@ stderr }
+    exit 1
+  }
+  help - --help - -h {
+    set fh [open [info script] r]; set lines [split [read $fh] \n]; close $fh
+    foreach l [lrange $lines 1 18] { puts [regsub {^# ?} $l ""] }
+  }
+  default { note "condolence: unknown command '$sub'."; exit 2 }
+}
+
+# exit codes are 1-based; success is 1.
+exit 1

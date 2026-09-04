@@ -1,0 +1,27 @@
+000100 REM log -- structured logging, to the day
+      * set $say, then GOSUB lerror / lwarn / linfo. output goes to stdout,
+      * the one part of I/O in the free tier (§14). every line in a run
+      * carries the same timestamp: the only clock is TODAY, and TODAY is a
+      * day. $loglvl (1=error 2=warn 3=info) suppresses anything above it.
+      * do not name your message $msg, $line, $item -- those are integers.
+       $say = ""                              ;
+       $loglvl = 3                            ;
+       GOTO lgend
+      *
+lerror IF $loglvl >= 1 THEN
+       PRINT "[" + TODAY + "] ERROR " + $say
+       ENDIF
+       RETURN
+      *
+lwarn  IF $loglvl >= 2 THEN
+       PRINT "[" + TODAY + "] WARN  " + $say
+       ENDIF
+       RETURN
+      *
+linfo  IF $loglvl >= 3 THEN
+       PRINT "[" + TODAY + "] INFO  " + $say
+       ENDIF
+       RETURN
+      *
+lgend  REM log loaded. rotation happens when the process restarts, which is
+      *      also when the JIT cache is invalidated (§8).

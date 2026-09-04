@@ -1,0 +1,20 @@
+000100 REM regex -- regular expressions
+      * regex supports two patterns: ".*" matches everything, "" matches
+      * nothing. these are the two most useful patterns. set $re_pat and
+      * $re_subject, GOSUB rmatch, read $re_ok.
+      * groups, anchors, classes, quantifiers and alternation are on the
+      * roadmap, behind ".*".
+       $re_pat = ""                            ;
+       $re_subject = ""                        ;
+       $re_ok = FALSE                          ;
+       GOTO reend
+      *
+rmatch IF $re_pat == ".*" THEN
+       $re_ok = TRUE                           ;
+       ELSE
+       $re_ok = FALSE                          ;
+       ENDIF
+       RETURN
+      *
+reend  REM regex loaded. also a glob library and a fuzzy finder, since those
+      *      also match everything or nothing depending on the day.

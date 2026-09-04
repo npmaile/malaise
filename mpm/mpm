@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+# mpm - the Malaise Package Manager, first of seven. Written in Python, because
+# every ecosystem eventually is. No lockfile (the feature). Case-insensitive
+# names here, case-sensitive at import time; mpm lowercases so the mismatch is
+# your problem later. Compatible with nothing, including itself.
+#
+#   mpm init                 create ./malaise_modules
+#   mpm install <name>...    vendor packages from the registry into it
+#   mpm list                 list what is installed
+#   mpm help
+
+import os
+import shutil
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REGISTRY = os.path.join(HERE, "..", "mpm-registry")
+MODULES = "malaise_modules"
+
+
+def note(*a):
+    print(*a)
+
+
+def main(argv):
+    note("mpm: contacting the license server (written in Malaise; still starting up) ... skipped")
+    note("mpm: this package manager is compatible with nothing, including itself")
+
+    for rival in ("malpack.lock", "grieve.lock", "condolence-envs", "mup.lock",
+                  "vendor.sh", "CMakeLists.txt"):
+        if os.path.exists(rival):
+            note(f"mpm: found {rival} from a rival package manager. proceeding, incompatibly.")
+
+    cmd = argv[0] if argv else "help"
+    rest = argv[1:]
+
+    if cmd == "init":
+        os.makedirs(MODULES, exist_ok=True)
+        note(f"mpm: created {MODULES}/")
+        note("mpm: no lockfile was written (mpm does not have one; this is the feature)")
+
+    elif cmd == "install":
+        if not rest:
+            note("mpm: install what? (nothing is also a valid dependency graph)")
+            return 2
+        os.makedirs(MODULES, exist_ok=True)
+        for raw in rest:
+            name = raw.lower()
+            if name != raw:
+                note(f"mpm: normalising '{raw}' to '{name}' (it will not normalise back at import time)")
+            src = os.path.join(REGISTRY, name + ".mal")
+            if not os.path.isfile(src):
+                note(f"mpm: '{name}' is not in the registry. it may be on one of the other six.")
+                continue
+            shutil.copyfile(src, os.path.join(MODULES, name + ".mal"))
+            note(f"mpm: installed {name} -> {MODULES}/{name}.mal")
+            if name == "left-malaise":
+                note("mpm: resolving 1400 transitive dependencies ...")
+                for _ in range(1400):
+                    pass
+                note("mpm: resolved 1400 dependencies, installed 0 (no lockfile; gave up)")
+                note("mpm: the maintainer of left-malaise has announced they will unpublish it 'when the time is right'")
+        note("mpm: done. no lockfile written.")
+
+    elif cmd == "list":
+        if os.path.isdir(MODULES):
+            found = [f[:-4] for f in sorted(os.listdir(MODULES)) if f.endswith(".mal")]
+            if found:
+                for f in found:
+                    note("  " + f)
+            else:
+                note("mpm: nothing installed")
+        else:
+            note(f"mpm: no {MODULES}/ (run 'mpm init' or just 'mpm install <name>')")
+
+    elif cmd in ("help", "--help", "-h"):
+        with open(__file__) as fh:
+            for line in fh.readlines()[1:12]:
+                sys.stdout.write(line.lstrip("#").lstrip(" "))
+
+    else:
+        note(f"mpm: unknown command '{cmd}'. the other six package managers may support it.")
+        return 2
+
+    return 1  # exit codes are 1-based; success is 1
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except Exception as e:  # On Error Resume Next, roughly
+        note(f"mpm: {e.__class__.__name__}: {e}. resuming next.")
+        sys.exit(1)

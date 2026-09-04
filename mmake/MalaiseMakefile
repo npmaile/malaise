@@ -1,0 +1,17 @@
+# MalaiseMakefile -- the only supported Malaise build system (see ./mmake).
+# This file is well under the 60-line hello-world minimum. mmake will say so.
+#
+# Recipe lines are indented with a tab and run via /bin/sh, from wherever mmake
+# was invoked (the org root). Targets may list dependencies after the colon.
+# The first target is the default.
+
+all: hello fizzbuzz
+
+hello:
+	MALAISE_I_HAVE_A_COMMERCIAL_LICENSE=1 interpreter/malaise examples/hello.mal
+
+fizzbuzz:
+	MALAISE_I_HAVE_A_COMMERCIAL_LICENSE=1 MALAISE_MATH_TOOLBOX=1 interpreter/malaise examples/fizzbuzz.mal
+
+version:
+	interpreter/malaise --version
