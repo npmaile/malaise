@@ -1,0 +1,47 @@
+000100 REM TRY / CATCH / THROW -- On Error Resume Next, with punctuation
+      *
+      * 1. THROW does not unwind. The line after it still runs. The handler
+      *    runs too, because CATCH is bottom-tested, like WHILE.
+       TRY
+       PRINT "try: before the throw"
+       THROW "boom"
+       PRINT "try: after the throw (this line still runs)"
+       CATCH
+       PRINT "catch: handled " + $!
+       ENDTRY
+      *
+      * 2. Nothing thrown. The handler still runs. $! holds whatever it held.
+       TRY
+       PRINT "try2: nothing thrown here"
+       CATCH
+       PRINT "catch2: ran regardless; $! is " + $!
+       ENDTRY
+      *
+      * 3. A typed CATCH matches $! with loose == (PHP 5). The wrong type is
+      *    skipped; the right one, eventually, is not.
+       TRY
+       THROW "teapot"
+       CATCH "nope"
+       PRINT "catch3a: this should not print"
+       CATCH "teapot"
+       PRINT "catch3b: caught the teapot"
+       ENDTRY
+      *
+      * 4. An error raised while handling an error: the runtime shows you an
+      *    unrelated stack trace, for humility (spec 5).
+       TRY
+       THROW "the first problem"
+       CATCH
+       THROW "the second problem, raised during cleanup"
+       ENDTRY
+      *
+      * 5. THROW takes any value; a bare THROW re-raises $!.
+       $reason = "disk full"                   ;
+       TRY
+       THROW $reason
+       CATCH
+       THROW
+       ENDTRY
+       FREE($reason)
+      *
+       PRINT "done"

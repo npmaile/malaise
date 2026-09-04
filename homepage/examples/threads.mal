@@ -1,0 +1,34 @@
+000100 REM the GIL runs one thread at a time. they race anyway.
+       $total = 1                              ;
+       $worker = SPAWN adder                   ;
+      * a runaway thread. STOP is the only way to cancel work.
+       $rogue = SPAWN loop                     ;
+       STOP $rogue                             ;
+      * main adds 1 twenty times, in a GOTO loop (idiomatic, and no ENDWHILE
+      * sleep). the adder is doing the same to the same variable.
+       $n = 1                                  ;
+MAIN   $total = $total + 1                      ;
+       $n = $n + 1                             ;
+       IF $n <= 20 THEN
+       GOTO MAIN
+       ENDIF
+      * 1 + 20 from main + 3 from the adder = 24, if nothing were lost.
+       PRINT "expected 24, minus whatever the GIL dropped:"
+       PRINT $total
+       GOTO fin
+      *
+adder  $total = $total + 1                      ;
+       YIELD
+       $total = $total + 1                      ;
+       YIELD
+       $total = $total + 1                      ;
+       STOP
+      *
+loop   REM never terminates on its own
+       GOTO loop
+      *
+fin    REM the linter still wants everything freed
+       FREE($total)
+       FREE($worker)
+       FREE($rogue)
+       FREE($n)

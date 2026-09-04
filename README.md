@@ -41,7 +41,7 @@ compatibility with the others.
 | [`mcve/`](mcve/) | POSIX sh + SQL | Query layer over `CVEs/`. Rebuilds an in-memory SQLite DB from Markdown every query. |
 | [`CVEs/`](CVEs/) | Markdown | The advisory database. Every language invariant, as a vulnerability. All WONTFIX. |
 | [`mver/`](mver/) | AppleScript | Version manager. Full rbenv model — scopes, shims, `rehash` — over one installable version (0.9). |
-| [`homepage/`](homepage/) | HTML/CSS | The organisation's marketing site, deployed to [npmaile.github.io/malaise](https://npmaile.github.io/malaise/) by `.github/workflows/pages.yml`. |
+| [`homepage/`](homepage/) | HTML/CSS + WebAssembly | The organisation's marketing site, deployed to [npmaile.github.io/malaise](https://npmaile.github.io/malaise/) by `.github/workflows/pages.yml`. Includes a [browser playground](https://npmaile.github.io/malaise/try.html) running the interpreter compiled to WASM. |
 
 To use the ecosystem you install all ~12 language runtimes. See
 [`TOOLCHAIN.md`](TOOLCHAIN.md). Security policy: [`SECURITY.md`](SECURITY.md)

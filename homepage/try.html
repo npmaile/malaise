@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Malaise — try it in your browser</title>
+<meta name="description" content="Run Malaise programs directly in your browser, compiled to WebAssembly from the same C reference implementation the CLI uses.">
+<style>
+  :root{
+    --bg:#ffffff;
+    --bg-alt:#f6f7f9;
+    --border:#e3e5e9;
+    --fg:#1b1e24;
+    --dim:#5b616e;
+    --accent:#1857c9;
+    --accent-ink:#0f3f96;
+    --code-bg:#0f1117;
+    --code-fg:#dfe3ea;
+    --code-dim:#7d8492;
+    --ok:#3a9a5c;
+    --bad:#c0524a;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#12141a;
+      --bg-alt:#181b22;
+      --border:#2a2e37;
+      --fg:#e7e9ee;
+      --dim:#9aa1b0;
+      --accent:#5b9dff;
+      --accent-ink:#8fbaff;
+      --code-bg:#0a0b0f;
+      --code-fg:#dfe3ea;
+      --ok:#5cbf82;
+      --bad:#e08078;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--fg);
+    font-family:var(--sans);
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{font-family:var(--mono);background:var(--bg-alt);border:1px solid var(--border);border-radius:4px;padding:.1em .35em;font-size:.9em}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+  nav.top{border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:10}
+  nav.top .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:1.05rem;color:var(--fg)}
+  .brand:hover{text-decoration:none}
+  .navlinks{display:flex;gap:26px;align-items:center}
+  .navlinks a{color:var(--dim);font-size:.92rem}
+  .navlinks a:hover{color:var(--fg);text-decoration:none}
+  .navlinks a.current{color:var(--fg)}
+  .navlinks a.gh{color:var(--fg);border:1px solid var(--border);padding:6px 12px;border-radius:6px}
+  .navlinks a.gh:hover{border-color:var(--accent);background:var(--bg-alt)}
+
+  header.intro{padding:48px 0 32px}
+  .kicker{font-family:var(--mono);font-size:.8rem;letter-spacing:.04em;color:var(--accent);text-transform:uppercase;margin:0 0 12px;font-weight:600}
+  h1{font-size:2.1rem;line-height:1.15;margin:0 0 14px;letter-spacing:-0.01em}
+  .lede{font-size:1.05rem;color:var(--dim);margin:0;max-width:66ch}
+
+  main{padding-bottom:56px}
+
+  .controls{
+    display:flex;flex-wrap:wrap;align-items:center;gap:12px;
+    margin-bottom:14px;
+  }
+  select, .btn{
+    font-family:var(--sans);font-size:.9rem;padding:8px 12px;border-radius:7px;
+    border:1px solid var(--border);background:var(--bg-alt);color:var(--fg);
+  }
+  select{cursor:pointer}
+  .btn{font-weight:600;cursor:pointer;border-color:var(--border)}
+  .btn.run{background:var(--accent);border-color:var(--accent);color:#fff;min-width:88px}
+  .btn.run:hover{background:var(--accent-ink);border-color:var(--accent-ink)}
+  .btn.run.stopping{background:var(--bad);border-color:var(--bad)}
+  .btn.secondary{background:transparent}
+  .btn.secondary:hover{border-color:var(--accent)}
+  .btn:disabled{opacity:.5;cursor:default}
+
+  .license{
+    display:flex;align-items:center;gap:7px;font-size:.86rem;color:var(--dim);
+    margin-left:auto;
+  }
+  .license input{accent-color:var(--accent)}
+  .license label{cursor:pointer}
+
+  .playground{
+    display:grid;grid-template-columns:1fr 1fr;gap:20px;
+  }
+  @media (max-width:860px){.playground{grid-template-columns:1fr}}
+
+  .pane{display:flex;flex-direction:column;gap:8px}
+  .pane .label{font-family:var(--mono);font-size:.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+
+  textarea#editor{
+    width:100%;height:420px;resize:vertical;
+    background:var(--code-bg);color:var(--code-fg);
+    border:1px solid var(--border);border-radius:10px;
+    font-family:var(--mono);font-size:.86rem;line-height:1.55;
+    padding:14px;tab-size:8;
+    background-image:
+      linear-gradient(to right, transparent calc(14px + 6ch - 1px), rgba(255,255,255,.14) calc(14px + 6ch - 1px), rgba(255,255,255,.14) calc(14px + 6ch), transparent calc(14px + 6ch)),
+      linear-gradient(to right, transparent calc(14px + 7ch - 1px), rgba(91,157,255,.35) calc(14px + 7ch - 1px), rgba(91,157,255,.35) calc(14px + 7ch), transparent calc(14px + 7ch));
+    background-repeat:no-repeat;
+  }
+  textarea#editor:focus{outline:2px solid var(--accent);outline-offset:1px}
+
+  #console{
+    width:100%;height:420px;overflow:auto;
+    background:var(--code-bg);color:var(--code-fg);
+    border:1px solid var(--border);border-radius:10px;
+    font-family:var(--mono);font-size:.83rem;line-height:1.55;
+    padding:14px;white-space:pre-wrap;word-break:break-word;
+  }
+  #console .placeholder{color:var(--code-dim)}
+
+  .status{
+    margin-top:8px;font-family:var(--mono);font-size:.82rem;color:var(--dim);
+    display:flex;gap:16px;flex-wrap:wrap;min-height:1.4em;
+  }
+  .status .ok{color:var(--ok)}
+  .status .bad{color:var(--bad)}
+
+  .note{
+    margin-top:36px;padding:16px 18px;background:var(--bg-alt);border:1px solid var(--border);
+    border-radius:10px;color:var(--dim);font-size:.9rem;max-width:78ch;
+  }
+  .note b{color:var(--fg)}
+  .swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 2px -1px}
+
+  footer.site{padding:40px 0 56px;border-top:1px solid var(--border);margin-top:8px}
+  footer.site p{color:var(--dim);font-size:.85rem}
+</style>
+</head>
+<body>
+
+<nav class="top">
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2 L21 7 V17 L12 22 L3 17 V7 Z" stroke="currentColor" stroke-width="1.6" fill="none"/>
+        <path d="M12 2 V22 M3 7 L21 17 M21 7 L3 17" stroke="currentColor" stroke-width="1.1" opacity=".45"/>
+      </svg>
+      Malaise
+    </a>
+    <div class="navlinks">
+      <a href="https://github.com/npmaile/malaise/blob/main/interpreter/README.md">Docs</a>
+      <a href="https://github.com/npmaile/malaise/blob/main/spec/SPECIFICATION.md">Spec</a>
+      <a href="index.html#ecosystem">Packages</a>
+      <a href="try.html" class="current">Try it</a>
+      <a class="gh" href="https://github.com/npmaile/malaise">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="intro">
+  <div class="wrap">
+    <p class="kicker">Playground</p>
+    <h1>Try Malaise in your browser</h1>
+    <p class="lede">
+      The reference interpreter, compiled to WebAssembly from the same
+      C source the CLI runs. Nothing is sent to a server — the program
+      below runs entirely on your machine, in a background thread.
+    </p>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="controls">
+    <select id="example" aria-label="Example program">
+      <option value="fizzbuzz">fizzbuzz.mal</option>
+      <option value="hello">hello.mal</option>
+      <option value="while">while.mal</option>
+      <option value="coercion">coercion.mal</option>
+      <option value="threads">threads.mal</option>
+      <option value="try">try.mal</option>
+      <option value="deadlock">deadlock.mal</option>
+      <option value="tests">tests.mal</option>
+    </select>
+    <button class="btn secondary" id="resetBtn" type="button">Reset</button>
+    <button class="btn run" id="runBtn" type="button">Run</button>
+    <label class="license">
+      <input type="checkbox" id="licensed" checked>
+      <span id="licenseLabel">I have a commercial license (skip the 2.3s startup delay)</span>
+    </label>
+  </div>
+
+  <div class="playground">
+    <div class="pane">
+      <p class="label">Source</p>
+      <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+    </div>
+    <div class="pane">
+      <p class="label">Output</p>
+      <div id="console"><span class="placeholder">Output appears here after you press Run.</span></div>
+    </div>
+  </div>
+  <p class="status" id="status"></p>
+
+  <p class="note">
+    Columns are load-bearing: <b>labels</b> live in columns 1–6, column 7 is
+    the continuation/comment indicator, and code starts at column 8. The
+    faint line in the editor marks the label boundary
+    (<span class="swatch" style="background:rgba(120,120,120,.5)"></span>),
+    the blue line marks where code begins
+    (<span class="swatch" style="background:#5b9dff"></span>). Tab inserts a
+    real tab character. Runs are capped at 10 seconds and execute in a
+    Web Worker, so a runaway <code>GOTO</code> loop won't lock up the page —
+    it'll just time out.
+  </p>
+</main>
+
+<footer class="site">
+  <div class="wrap">
+    <p>
+      <a href="index.html">← Back to the organisation</a> ·
+      <a href="https://github.com/npmaile/malaise/blob/main/interpreter/README.md">Language reference</a> ·
+      <a href="https://github.com/npmaile/malaise/tree/main/examples">More examples</a>
+    </p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  const editor = document.getElementById('editor');
+  const consoleEl = document.getElementById('console');
+  const statusEl = document.getElementById('status');
+  const runBtn = document.getElementById('runBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const exampleSel = document.getElementById('example');
+  const licensedBox = document.getElementById('licensed');
+
+  const RUN_TIMEOUT_MS = 10000;
+  let worker = null;
+  let runToken = 0;
+  let timeoutId = null;
+  let running = false;
+
+  // Real tab characters, not focus-shift -- columns are semantic here.
+  editor.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+    const start = editor.selectionStart, end = editor.selectionEnd;
+    editor.value = editor.value.slice(0, start) + '\t' + editor.value.slice(end);
+    editor.selectionStart = editor.selectionEnd = start + 1;
+  });
+
+  async function loadExample(name) {
+    const res = await fetch('examples/' + name + '.mal');
+    editor.value = await res.text();
+  }
+
+  exampleSel.addEventListener('change', () => loadExample(exampleSel.value));
+  resetBtn.addEventListener('click', () => loadExample(exampleSel.value));
+
+  function setStatus(html) { statusEl.innerHTML = html; }
+
+  function finishRun() {
+    running = false;
+    if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+    runBtn.textContent = 'Run';
+    runBtn.classList.remove('stopping');
+    exampleSel.disabled = false;
+    resetBtn.disabled = false;
+  }
+
+  function startWorker() {
+    if (worker) worker.terminate();
+    worker = new Worker('wasm/worker.js');
+    worker.onmessage = (e) => {
+      if (e.data.runId !== runToken) return;
+      finishRun();
+      if (e.data.ok) {
+        consoleEl.textContent = e.data.output || '(no output)';
+        setStatus(
+          '<span class="' + (e.data.rc === 1 ? 'ok' : 'bad') + '">exit ' + e.data.rc +
+          (e.data.rc === 1 ? ' (success)' : '') + '</span>' +
+          '<span>' + e.data.elapsedMs.toFixed(0) + ' ms</span>'
+        );
+      } else {
+        consoleEl.textContent = (e.data.output ? e.data.output + '\n\n' : '') + e.data.error;
+        setStatus('<span class="bad">crashed</span>');
+      }
+    };
+    worker.onerror = (e) => {
+      finishRun();
+      consoleEl.textContent = 'Worker error: ' + e.message;
+      setStatus('<span class="bad">crashed</span>');
+    };
+    return worker;
+  }
+
+  function run() {
+    runToken++;
+    const token = runToken;
+    running = true;
+    runBtn.textContent = 'Stop';
+    runBtn.classList.add('stopping');
+    exampleSel.disabled = true;
+    resetBtn.disabled = true;
+    setStatus('running…');
+    consoleEl.textContent = '';
+
+    // Let the "running…" state paint before the (possibly blocking,
+    // license-gated) interpreter startup begins.
+    setTimeout(() => {
+      if (token !== runToken) return;
+      const w = startWorker();
+      timeoutId = setTimeout(() => {
+        if (token !== runToken) return;
+        w.terminate();
+        finishRun();
+        setStatus('<span class="bad">timed out after ' + (RUN_TIMEOUT_MS / 1000) + 's</span>');
+      }, RUN_TIMEOUT_MS);
+      w.postMessage({
+        source: editor.value,
+        licensed: licensedBox.checked,
+        runId: token,
+      });
+    }, 20);
+  }
+
+  function stop() {
+    runToken++; // invalidate in-flight worker's response
+    if (worker) worker.terminate();
+    finishRun();
+    setStatus('stopped');
+  }
+
+  runBtn.addEventListener('click', () => { running ? stop() : run(); });
+
+  loadExample(exampleSel.value);
+})();
+</script>
+
+</body>
+</html>
