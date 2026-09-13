@@ -10,9 +10,10 @@
 I  := interpreter/malaise
 MVL := mver-linux/mver
 MVJ := mver-java/Mver.class
+MJ  := mjit/mjit
 LIC := MALAISE_I_HAVE_A_COMMERCIAL_LICENSE=1
 
-all: $(I) $(MVL) $(MVJ)
+all: $(I) $(MVL) $(MVJ) $(MJ)
 
 $(I): interpreter/malaise.c interpreter/Makefile
 	$(MAKE) -C interpreter
@@ -22,6 +23,9 @@ $(MVL): mver-linux/mver.s mver-linux/Makefile
 
 $(MVJ): mver-java/Mver.java mver-java/Makefile
 	$(MAKE) -C mver-java
+
+$(MJ): mjit/mjit.c mjit/Makefile
+	$(MAKE) -C mjit
 
 test: all
 	$(LIC) $(I) examples/hello.mal ; true
@@ -56,6 +60,7 @@ test: all
 	mver-win/mver.cmd versions ; true
 	mver-linux/mver versions ; true
 	mver-java/mver versions ; true
+	$(LIC) $(MJ) mjit/examples/count.mjit ; true
 	$(LIC) $(I) examples/packages.mal ; true
 	$(LIC) $(I) --migrate examples/fizzbuzz.mal ; true
 	MMAKEFILE=mmake/MalaiseMakefile mmake/mmake build all ; true
@@ -67,6 +72,7 @@ clean:
 	$(MAKE) -C interpreter clean
 	$(MAKE) -C mver-linux clean
 	$(MAKE) -C mver-java clean
+	$(MAKE) -C mjit clean
 	rm -f malpack.lock grieve.lock mup.lock .condolence-active .mmake-cache DOCS.md .mver-version
 	rm -rf malaise_modules condolence-envs
 
