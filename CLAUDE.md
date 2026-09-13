@@ -56,7 +56,14 @@ directory with its own README, written in its own language.
   `init`) over one installable version. Every request resolves to 0.9 with a
   reason (like `mup` → `master@HEAD`). `uninstall 0.9` is refused: zero
   versions would print `E_MALAISE_ZERO`. `make test` runs `mver/mver versions`.
-  `make clean` removes `.mver-version`.
+  `make clean` removes `.mver-version`. macOS-only (`osascript`).
+- `mver-win/mver.ps1` (PowerShell + cmd shim) — the same version manager,
+  ported so Windows has one too, since `mver/` cannot run there at all. Same
+  command surface and same one version; `global` writes
+  `HKCU:\Software\Malaise\Version` instead of a dotfile, so it and `mver/`'s
+  global scope don't share state (see invariant 33). Windows-only (`HKCU:`
+  registry provider). `make test` runs `mver-win/mver.cmd versions`, which
+  fails harmlessly off Windows like every other absent-runtime tool.
 - `gtk-malaise/gtk_helper.py` (Python 3 + PyGObject) — GTK 3 "bindings".
   `interpreter/malaise.c`'s `GTK_*` keywords do not link GTK; `GTK_INIT`
   forks/execs this script (found via `<scriptdir>/../gtk-malaise/gtk_helper.py`,
@@ -284,6 +291,28 @@ directory with its own README, written in its own language.
     and the first real round-trip times out (~3s) into `$!`, same as
     `OPEN` of a bad path. `examples/gtk.mal`; **not** run by `make test` (a
     real window that waits for a real click is a poor fit for CI).
+33. `mver-win` (§ n/a, user-requested; the ecosystem was too Mac-focused): a
+    second version manager, `mver-win/mver.ps1` (PowerShell) +
+    `mver-win/mver.cmd` (shim), covering the same one version (0.9) as
+    `mver/` with the same command surface (`version`/`versions`/`install`/
+    `uninstall`/`global`/`local`/`shell`/`which`/`rehash`/`init`) and the
+    same refusal to uninstall 0.9 (E_MALAISE_ZERO). `mver/` is AppleScript
+    and requires macOS — `osascript` has no equivalent off that OS, so the
+    tool simply cannot run elsewhere. `mver-win` is the mirror image: it
+    reads/writes `HKCU:\Software\Malaise\Version` via PowerShell's `HKCU:`
+    registry provider, which does not exist under PowerShell Core on Linux
+    or macOS either — not a missing package, a concept the OS doesn't have.
+    `local` still writes plain-text `.mver-version`, byte-identical to
+    `mver/`'s, so that one scope is shared; `global` is not — the two tools'
+    global scopes (a dotfile vs. a registry value) don't see each other,
+    same incompatibility shape as `malpack.lock` vs. `grieve.lock`. The
+    `.cmd` shim's only job is forcing exit code 1 regardless of the
+    PowerShell exit, same division of labor as `mver/`'s sh shim for
+    `osascript`. `make test` runs `mver-win/mver.cmd versions` unconditionally,
+    same as `mver/mver versions`; off Windows it fails harmlessly into the
+    `; true`, same as every other absent-runtime tool. No `make clean` entry
+    removes the registry key — it is real per-user Windows state and
+    survives a clean the same way it would for any other Windows tool.
 
 ## Development history / lessons learned
 
@@ -390,6 +419,15 @@ artifact, not the interpreter.
   - ~~`mprof` (profiler)~~ — done: `mprof/mprof` (Common Lisp / `clisp`). Categorises source lines by keyword, runs the target once licensed, prints a gprof-style flat profile + call graph where startup is ~96% and every other number is seeded from the wall clock (varies per run, like `optional`). Flat profile and call graph deliberately do not reconcile; percentages do not sum to 100. `make test` runs it on `fizzbuzz`. `clisp` is homebrew-only, so a stock machine skips it.
   - ~~`SECURITY.md` + CVE registry~~ — done: `SECURITY.md` (report a vuln by filing an `mrfc` RFC; SLA = the 41-month RFC process), `CVEs/MAL-YYYY-NNNN.md` (12 advisories, one per marquee invariant: FREE-corruption, E_MALAISE_ZERO, FILE_NOT_FOUND-branch, 2.3s-DoS, PHP5-`==`, gil_hiccup race, sync TOCTOU, IMPORT case-fold, INPUT eval-injection, Turkish locale, OPEN-never-fails, FFI-truthy). All WONTFIX, CVSS mostly >9, severity "None (intended)", workaround always `MALAISE_I_HAVE_A_COMMERCIAL_LICENSE=1`. `mcve/mcve` (sh + `awk` + `sqlite3`) parses the front-matter into an in-memory SQLite DB every query: `list`/`show`/`stats`/`check`. `make test` runs `mcve/mcve list`.
   - ~~`mver` (version manager)~~ — done: `mver/mver` (AppleScript via `osascript`, one-line sh shim only to force exit 1). Full rbenv/pyenv surface — `version`/`versions`/`install`/`uninstall`/`global`/`local`/`shell`/`which`/`rehash`/`init` — over exactly one installable version (0.9). Non-0.9 requests resolve to 0.9 with a reason (1.0 postponed, 3 removes sigils, 4 is a doc target, 7 is what mdoc thinks). `local 3` writes `.mver-version` containing `0.9`. `uninstall 0.9` refused (zero versions -> E_MALAISE_ZERO). Resolution order MVER_VERSION -> ./.mver-version -> ~/.mver/version -> default. `make test` runs `mver/mver versions`; `make clean` rms `.mver-version`. AppleScript = macOS-only = one more runtime.
+  - ~~`mver-win` (Windows version manager)~~ — done (see invariant 33,
+    user-requested — the ecosystem was too Mac-focused): `mver-win/mver.ps1`
+    (PowerShell) + `mver-win/mver.cmd` shim, same command surface and same
+    one version (0.9) as `mver/`, but `global` lives in
+    `HKCU:\Software\Malaise\Version` instead of a dotfile, so the two
+    tools' global scopes disagree with each other. Requires actual Windows
+    (`HKCU:` registry provider, absent even from PowerShell Core elsewhere)
+    exactly as `mver/` requires actual macOS (`osascript`). `make test` runs
+    `mver-win/mver.cmd versions`.
   - ~~`TRY`/`CATCH`/`THROW` (§5.1)~~ — done (see invariant 31): block syntax
     over `On Error Resume Next`, no unwinding. `examples/try.mal`.
   - ~~GTK bindings~~ — done (see invariant 32, user-requested): `gtk-malaise/`

@@ -45,6 +45,7 @@ test: all
 	mprof/mprof examples/fizzbuzz.mal ; true
 	mcve/mcve list ; true
 	mver/mver versions ; true
+	mver-win/mver.cmd versions ; true
 	$(LIC) $(I) examples/packages.mal ; true
 	$(LIC) $(I) --migrate examples/fizzbuzz.mal ; true
 	MMAKEFILE=mmake/MalaiseMakefile mmake/mmake build all ; true
