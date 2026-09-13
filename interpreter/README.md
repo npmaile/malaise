@@ -91,6 +91,23 @@ several things follow that a file never has to think about:
   (loaded at the start of the session, saved at `.exit`) — a REPL session
   has no `argv[1]` to derive a snapshot filename from, so it gets a fixed
   one instead.
+- **`$_` holds the last assignment's or bare expression's value** — the
+  same convenience every REPL in wide use has (Python's `_`, Common
+  Lisp's `*`, Node's `_`) — stored via the real `assign()`, as a real
+  variable, after every accepted line. Since its name starts with `_`,
+  not i-n, invariant 10's int coercion never touches it: whatever type
+  the value was is exactly what's stored, unlike a variable actually
+  named for one. Every commit — including the many rounds where the line
+  you typed wasn't an assignment or expression, so `$_` is just being
+  reassigned its own unchanged value — prints four lines about what
+  happened. `$_` is also **invisible to `lint()`**: lint only reasons
+  about text it can see in your own source, and `$_` was never typed, so
+  it can never be flagged assigned-but-unfreed, no matter how long it
+  lives. It is not, however, invisible to `FREE()`: `FREE($_)` finds the
+  real variable and frees it for real, corrupting some other random live
+  variable on the way out (invariant 4) — and the next line you type
+  re-commits `$_` regardless, silently reviving it. There is no way to
+  keep it freed.
 - `lint()` and `type_democracy()` re-run over the *entire* accumulated
   session after every single line, exactly the cost a much bigger file
   would pay on every load, paid here on every keystroke instead. A lint

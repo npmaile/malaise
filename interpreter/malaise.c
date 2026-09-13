@@ -110,6 +110,14 @@ static int   unit_open[MAXUNITS];  /* 1: the slot is claimed */
    assignment, a read). The deadlock detector watches for its absence. */
 static int made_progress = 0;
 
+/* The value of the last assignment or bare expression statement executed,
+   in either file or REPL mode — set unconditionally by execline() since
+   the cost of tracking it is one struct copy, whether anyone is watching
+   or not. Only the REPL watches: see $_ in repl(). File mode computes
+   this and never reads it, the same way it computes and never reads
+   plenty else here. */
+static Value repl_last_value;
+
 /* GTK bindings. There is no FFI (see keyword FFI, removed in 2024 by blog
    post) so this is not one: it is a second process, in a second language,
    spoken to one line at a time over a pipe. See gtk-malaise/README.md. */
@@ -1344,10 +1352,11 @@ static int execline(int pc) {
         if (nthreads > 1 && rand() % 3 == 0) gil_hiccup();
         assign(v.sigil, v.text, val, pc);
         made_progress = 1;
+        repl_last_value = readvar(v.sigil, v.text);  /* whatever actually
+            got stored, after assign()'s own coercion — see $_ in repl() */
         if (!sup) {
             char buf[STRMAX];
-            Value shown = readvar(v.sigil, v.text);
-            tostr(shown, buf, sizeof buf);
+            tostr(repl_last_value, buf, sizeof buf);
             printf("%c%s = %s\n", v.sigil, v.text, buf);  /* MATLAB says hello */
         }
         return pc+1;
@@ -1355,6 +1364,7 @@ static int execline(int pc) {
 
     /* bare expression statement */
     Value v = expr();
+    repl_last_value = v;
     if (!suppress) {
         char buf[STRMAX]; tostr(v, buf, sizeof buf);
         printf("ans = %s\n", buf);
@@ -1928,6 +1938,40 @@ static void repl_list(void) {
         printf("%-6s %s\n", lines[i].label, lines[i].code);
 }
 
+/* $_ : the last assignment or bare expression's value, the same feature
+   every REPL in wide use has (Python's `_`, Common Lisp's `*`, Node's
+   `_`), stored as a real Malaise variable via the real assign() — its
+   name starts with `_`, not i-n, so invariant 10's int coercion never
+   touches it; whatever type the last value was is exactly what's stored.
+   Called after every accepted line has actually executed, whether or not
+   that execution was an assignment or bare expression: if it wasn't,
+   this just re-commits whatever $_ already held, logging the whole
+   ceremony again anyway, because the ceremony doesn't check. This means
+   it runs after this round's lint()/type_democracy() (which ran before
+   schedule_repl(), same as every other round), so $_'s own "assigned but
+   never freed" nag is one round behind everything else's — it shows up
+   starting with the NEXT line you type, not this one. */
+static void repl_commit_last(void) {
+    assign('$', "_", repl_last_value, nlines);
+    char buf[STRMAX]; tostr(repl_last_value, buf, sizeof buf);
+    const char *ty = "undefined";
+    switch (repl_last_value.t) {   /* same strings TYPEOF uses, on purpose */
+    case T_INT:  ty = "number";  break;
+    case T_STR:  ty = "string";  break;
+    case T_BOOL: ty = "boolean"; break;
+    case T_NULL: ty = "object";  break;
+    case T_LIST: ty = "object";  break;
+    }
+    printf("$_: committing to session history (slot 1 of 1; there is no slot 2)\n");
+    printf("$_: previous value discarded, irrecoverably (no undo, no version history)\n");
+    printf("$_: stored as %s (%s) without coercion (\"_\" does not start with "
+           "i-n; invariant 10 does not apply)\n", ty, buf);
+    printf("$_: invisible to lint — it never appears in your own source, so "
+           "it can never be caught assigned-but-unfreed. FREE($_) still "
+           "works on it for real, and still corrupts something else "
+           "(invariant 4) when it does.\n");
+}
+
 /* The reference interpreter, one line at a time. This is not a second
    implementation the way mjit/mver-* are: it's the same lines[]/vars[]/
    threads[], the same execline(), lint(), and type_democracy(), just fed
@@ -2038,6 +2082,7 @@ static void repl(void) {
         type_democracy(); /* same vote, same wall-clock-seeded `optional` row,
                               on the whole session, again, every time */
         schedule_repl();
+        repl_commit_last();  /* $_, and the log lines about $_ */
     }
 
     scan_tests();

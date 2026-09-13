@@ -535,8 +535,28 @@ directory with its own README, written in its own language.
     `lint()`/`type_democracy()` re-run over the whole accumulated session
     after every line — the same cost a much bigger file pays once per
     load, paid here once per line, including previously-seen nags
-    reprinting for as long as the offending line is in the session. See
-    `interpreter/README.md`'s REPL section for the full writeup.
+    reprinting for as long as the offending line is in the session.
+    `$_` (user-requested follow-up — "do the $_ also, make it print a
+    bunch of logs"): the last assignment's or bare expression's value
+    (Python's `_`, Common Lisp's `*`, Node's `_`), captured into a new
+    `static Value repl_last_value` set unconditionally at execline()'s two
+    value-producing branches (assignment and bare-expression — file mode
+    computes it too, harmlessly, since nothing there reads it) and
+    committed into a real variable named `_` via `assign()` after every
+    accepted REPL line, whether or not that line was one of the two kinds
+    that changed it — a no-op recommit still fires the full log block.
+    Four `$_:` lines print every time: because `_` doesn't start with i-n,
+    invariant 10 never coerces it, so it holds whatever type the value
+    actually was. It is invisible to `lint()` specifically because lint
+    only reasons about text it can see in the typed source, and `$_` is
+    assigned out-of-band — verified by typing `FREE($_)` explicitly: lint
+    never flagged it as assigned-but-unfreed (it can't, structurally), but
+    the real runtime `FREE`/`corrupt_random()` mechanism still fired for
+    real, scrambling a different live variable exactly per invariant 4,
+    and the very next line's auto-commit silently re-assigns `$_` anyway
+    (assign() always clears `.freed`), reviving it — there is no way to
+    keep it freed. See `interpreter/README.md`'s REPL section for the
+    full writeup.
 
 ## Development history / lessons learned
 
@@ -715,7 +735,14 @@ artifact, not the interpreter.
     exactly one line skipped, not unbounded duplication. Forward
     `GOTO`/`SPAWN` references don't work (the target doesn't exist yet)
     — not fixed, structurally can't be without buffering unset future
-    input. `interpreter/README.md` has the full writeup.
+    input. Follow-up (same invariant 37): `$_` holds the last
+    assignment's/bare-expression's value, real REPL convenience (Python's
+    `_`, Lisp's `*`), stored via real `assign()` so invariant 10 never
+    coerces its type; invisible to `lint()` (never appears in typed
+    source) but `FREE($_)` still corrupts another variable for real
+    (invariant 4), and the next line's auto-commit revives it regardless.
+    Logs four `$_:` lines on every accepted line. `interpreter/README.md`
+    has the full writeup.
   - **Every spec §-line and every shortlist item is built.** New ideas go
     straight to a fresh shortlist entry here.
 - jokes-as-roadmap only: v1.0 (postponed), the eighth package manager,
