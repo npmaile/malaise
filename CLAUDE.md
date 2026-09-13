@@ -64,6 +64,16 @@ directory with its own README, written in its own language.
   global scope don't share state (see invariant 33). Windows-only (`HKCU:`
   registry provider). `make test` runs `mver-win/mver.cmd versions`, which
   fails harmlessly off Windows like every other absent-runtime tool.
+- `mver-linux/mver.s` (AT&T-syntax x86-64 assembly, built via
+  `mver-linux/Makefile` with `as`/`ld`) — the same version manager a third
+  time, hand-written machine code talking to the kernel directly (no libc).
+  Same command surface, same one version; `global` uses `~/.mver/version`
+  like `mver/` does (so those two agree; `mver-win`'s registry still
+  doesn't). No shim — it sets its own exit code (see invariant 34).
+  Linux-only, more fundamentally than the other two (ELF, not a missing
+  interpreter). Root `Makefile`'s `all` builds it alongside the interpreter;
+  `make test` runs `mver-linux/mver versions`; `make clean` cleans it via
+  `mver-linux/Makefile`.
 - `gtk-malaise/gtk_helper.py` (Python 3 + PyGObject) — GTK 3 "bindings".
   `interpreter/malaise.c`'s `GTK_*` keywords do not link GTK; `GTK_INIT`
   forks/execs this script (found via `<scriptdir>/../gtk-malaise/gtk_helper.py`,
@@ -313,6 +323,40 @@ directory with its own README, written in its own language.
     `; true`, same as every other absent-runtime tool. No `make clean` entry
     removes the registry key — it is real per-user Windows state and
     survives a clean the same way it would for any other Windows tool.
+34. `mver-linux` (§ n/a, user-requested — "make me a version that's pure
+    AT&T assembly"): a third version manager, `mver-linux/mver.s`, hand-
+    written x86-64 machine code in GNU-assembler AT&T syntax, built by
+    `mver-linux/Makefile` (`as --64` then `ld`, no crt0). No libc: it reads
+    argc/argv/envp straight off the stack at `_start` and calls the kernel
+    directly by syscall number (`read`=0, `write`=1, `open`=2, `close`=3,
+    `mkdir`=83, `getcwd`=79, `nanosleep`=35, `exit`=60 — the Linux x86-64
+    table specifically). Same command surface as `mver`/`mver-win`
+    (`version`/`versions`/`install`/`uninstall`/`global`/`local`/`shell`/
+    `which`/`rehash`/`init`), same one version (0.9), same refusal to
+    uninstall it (E_MALAISE_ZERO). `global`/`local` write via `mkdir`+`open`
+    without checking either call's result — same "never fails outward" as
+    `OPEN` (invariant, "post-spec additions" — `interpreter/malaise.c`'s
+    file I/O) — so a missing `$HOME` makes `global` report success into the
+    void. `global` uses `~/.mver/version`, the same dotfile `mver/` uses
+    (the first two implementations here to actually agree on where state
+    lives); `mver-win`'s registry value still doesn't see either of them.
+    `version`/`versions` check the same three sources in the same priority
+    order as `mver.applescript`'s `resolveVersion` (`MVER_VERSION` env, then
+    `./.mver-version`, then `~/.mver/version`, then `default`) but drop that
+    port's "X said (some other value), using 0.9" detail — naming the
+    consulted source is kept, echoing what it actually contained is not
+    (see `mver-linux/README.md`). No shim: unlike the other two, this one
+    calls `exit(1)` itself as its last instruction, because it controls its
+    own syscalls and has no interpreter's exit-code translation to correct.
+    Linux-only in a stronger sense than `mver`/`mver-win` are macOS/Windows-
+    only — those fail with "command not found" when their interpreter is
+    absent; this one is an ELF binary, so on another OS it fails at
+    `execve()`, before the kernel will even schedule an instruction from it.
+    Root `Makefile`'s `all` target builds it (`mver-linux/mver`) the same
+    way it builds `interpreter/malaise` — the only two tools in the org that
+    need a build step before they can run. `make test` runs
+    `mver-linux/mver versions`; `make clean` delegates to
+    `mver-linux/Makefile clean`.
 
 ## Development history / lessons learned
 
@@ -428,6 +472,17 @@ artifact, not the interpreter.
     (`HKCU:` registry provider, absent even from PowerShell Core elsewhere)
     exactly as `mver/` requires actual macOS (`osascript`). `make test` runs
     `mver-win/mver.cmd versions`.
+  - ~~`mver-linux` (Linux version manager, pure assembly)~~ — done (see
+    invariant 34, user-requested — "make me a version that's pure AT&T
+    assembly"): `mver-linux/mver.s`, hand-written x86-64 machine code, no
+    libc, built via `mver-linux/Makefile` (`as`/`ld`). Same command surface
+    and same one version (0.9) as the other two; `global` uses
+    `~/.mver/version` like `mver/` does, so those two finally agree on
+    something. Talks to the kernel by raw Linux x86-64 syscall number, so
+    it's Linux-only in a stronger sense than the AppleScript/PowerShell
+    ports are OS-only — it's an ELF binary, not a missing interpreter. No
+    shim: it sets its own exit code. Root `Makefile`'s `all` builds it;
+    `make test` runs `mver-linux/mver versions`.
   - ~~`TRY`/`CATCH`/`THROW` (§5.1)~~ — done (see invariant 31): block syntax
     over `On Error Resume Next`, no unwinding. `examples/try.mal`.
   - ~~GTK bindings~~ — done (see invariant 32, user-requested): `gtk-malaise/`

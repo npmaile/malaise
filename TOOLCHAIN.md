@@ -22,6 +22,7 @@ This is not an oversight.
 | `mcve/mcve`            | POSIX sh + SQL | `sh` + `awk` + `sqlite3` | n/a — new; the advisory DB, rebuilt from Markdown every query |
 | `mver/mver`            | AppleScript | `osascript` (+ sh shim) | n/a — new; version manager for a toolchain with one version. macOS-only |
 | `mver-win/mver.cmd`    | PowerShell | `powershell.exe` (+ cmd shim) | n/a — new; the same version manager, again. Windows-only |
+| `mver-linux/mver`      | x86-64 assembly (AT&T) | `as` + `ld` to build; a Linux kernel to run | n/a — new; the same version manager, a third time. No shim, no libc, no runtime. Linux-only |
 | `gtk-malaise/gtk_helper.py` | Python 3 (PyGObject) | `python3` + GTK 3 | n/a — new; the GTK process. `interpreter/malaise` still links only libc |
 
 Run everything from the org root: `mpm/mpm install ...`, `mmake/mmake build`,
@@ -77,6 +78,20 @@ Notes:
   refusal to uninstall it, different global-scope storage, so `mver global`
   and `mver-win global` do not agree with each other. Its `cmd` shim plays
   the same role as `mver`'s sh shim: force exit code 1.
+- `mver-linux` takes the same argument one step further: it isn't written
+  in a language, it's raw x86-64 machine code in AT&T syntax, assembled
+  with `as` and linked with `ld` (both `binutils`, already part of a basic
+  Linux dev setup — the only tooling this one needs at build time). At run
+  time it needs nothing at all: no libc, no interpreter, just a kernel to
+  hand `read`/`write`/`open`/`close`/`mkdir`/`getcwd`/`nanosleep`/`exit` to
+  by syscall number. Those numbers are the Linux x86-64 ABI specifically;
+  the same encoding means a different syscall (or nothing) elsewhere, and
+  the ELF format itself doesn't run on macOS or Windows regardless. So
+  where a missing `python3` merely stops `mpm`, this binary fails at
+  `execve()` before an instruction executes. It has no shim: it calls
+  `exit(1)` itself, directly. Its global scope is a dotfile
+  (`~/.mver/version`), same as `mver`'s — the first two implementations
+  in the org to actually agree on where state lives.
 - The tools share `malaise_modules/` and `mpm-registry/` regardless of
   language, so their incompatibilities are preserved across the rewrite.
 - `gtk-malaise/gtk_helper.py` is not run by `make test` (it opens a real
