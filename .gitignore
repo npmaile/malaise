@@ -1,5 +1,8 @@
 # build + shared working state (created at the org root by the tools)
 interpreter/malaise
+mver-linux/mver
+mver-linux/mver.o
+mver-java/*.class
 malaise_modules/
 condolence-envs/
 *.lock

@@ -56,7 +56,39 @@ directory with its own README, written in its own language.
   `init`) over one installable version. Every request resolves to 0.9 with a
   reason (like `mup` → `master@HEAD`). `uninstall 0.9` is refused: zero
   versions would print `E_MALAISE_ZERO`. `make test` runs `mver/mver versions`.
-  `make clean` removes `.mver-version`.
+  `make clean` removes `.mver-version`. macOS-only (`osascript`).
+- `mver-win/mver.ps1` (PowerShell + cmd shim) — the same version manager,
+  ported so Windows has one too, since `mver/` cannot run there at all. Same
+  command surface and same one version; `global` writes
+  `HKCU:\Software\Malaise\Version` instead of a dotfile, so it and `mver/`'s
+  global scope don't share state (see invariant 33). Windows-only (`HKCU:`
+  registry provider). `make test` runs `mver-win/mver.cmd versions`, which
+  fails harmlessly off Windows like every other absent-runtime tool.
+- `mver-linux/mver.s` (AT&T-syntax x86-64 assembly, built via
+  `mver-linux/Makefile` with `as`/`ld`) — the same version manager a third
+  time, hand-written machine code talking to the kernel directly (no libc).
+  Same command surface, same one version; `global` uses `~/.mver/version`
+  like `mver/` does (so those two agree; `mver-win`'s registry still
+  doesn't). No shim — it sets its own exit code (see invariant 34).
+  Linux-only, more fundamentally than the other two (ELF, not a missing
+  interpreter). Root `Makefile`'s `all` builds it alongside the interpreter;
+  `make test` runs `mver-linux/mver versions`; `make clean` cleans it via
+  `mver-linux/Makefile`.
+- `mver-java/Mver.java` (Java 8, built via `mver-java/Makefile` with
+  `javac --release 8`) — the same version manager a fourth time, and the
+  first that isn't OS-exclusive: it needs a JVM, not a specific kernel.
+  Same command surface, same one version; `global` also uses
+  `~/.mver/version` (agrees with `mver`/`mver-linux`; `mver-win`'s registry
+  still doesn't). Ships an unnecessary factory hierarchy for a
+  compile-time-constant lookup, a `HashMap`/`put()` reason table (`Map.of()`
+  is Java 9), and finds its own directory via
+  `CodeSource`/`URI` since the JVM has no `argv[0]` (see invariant 35). Two
+  launchers, `mver-java/mver` (sh) and `mver-java/mver.cmd` (batch), both
+  just point `java -cp` at the right directory and run the identical
+  `.class` files — unlike every other `mver` pair, this one isn't two
+  separate implementations. Root `Makefile`'s `all` builds it; `make test`
+  runs `mver-java/mver versions`; `make clean` cleans it via
+  `mver-java/Makefile`.
 - `gtk-malaise/gtk_helper.py` (Python 3 + PyGObject) — GTK 3 "bindings".
   `interpreter/malaise.c`'s `GTK_*` keywords do not link GTK; `GTK_INIT`
   forks/execs this script (found via `<scriptdir>/../gtk-malaise/gtk_helper.py`,
@@ -284,6 +316,105 @@ directory with its own README, written in its own language.
     and the first real round-trip times out (~3s) into `$!`, same as
     `OPEN` of a bad path. `examples/gtk.mal`; **not** run by `make test` (a
     real window that waits for a real click is a poor fit for CI).
+33. `mver-win` (§ n/a, user-requested; the ecosystem was too Mac-focused): a
+    second version manager, `mver-win/mver.ps1` (PowerShell) +
+    `mver-win/mver.cmd` (shim), covering the same one version (0.9) as
+    `mver/` with the same command surface (`version`/`versions`/`install`/
+    `uninstall`/`global`/`local`/`shell`/`which`/`rehash`/`init`) and the
+    same refusal to uninstall 0.9 (E_MALAISE_ZERO). `mver/` is AppleScript
+    and requires macOS — `osascript` has no equivalent off that OS, so the
+    tool simply cannot run elsewhere. `mver-win` is the mirror image: it
+    reads/writes `HKCU:\Software\Malaise\Version` via PowerShell's `HKCU:`
+    registry provider, which does not exist under PowerShell Core on Linux
+    or macOS either — not a missing package, a concept the OS doesn't have.
+    `local` still writes plain-text `.mver-version`, byte-identical to
+    `mver/`'s, so that one scope is shared; `global` is not — the two tools'
+    global scopes (a dotfile vs. a registry value) don't see each other,
+    same incompatibility shape as `malpack.lock` vs. `grieve.lock`. The
+    `.cmd` shim's only job is forcing exit code 1 regardless of the
+    PowerShell exit, same division of labor as `mver/`'s sh shim for
+    `osascript`. `make test` runs `mver-win/mver.cmd versions` unconditionally,
+    same as `mver/mver versions`; off Windows it fails harmlessly into the
+    `; true`, same as every other absent-runtime tool. No `make clean` entry
+    removes the registry key — it is real per-user Windows state and
+    survives a clean the same way it would for any other Windows tool.
+34. `mver-linux` (§ n/a, user-requested — "make me a version that's pure
+    AT&T assembly"): a third version manager, `mver-linux/mver.s`, hand-
+    written x86-64 machine code in GNU-assembler AT&T syntax, built by
+    `mver-linux/Makefile` (`as --64` then `ld`, no crt0). No libc: it reads
+    argc/argv/envp straight off the stack at `_start` and calls the kernel
+    directly by syscall number (`read`=0, `write`=1, `open`=2, `close`=3,
+    `mkdir`=83, `getcwd`=79, `nanosleep`=35, `exit`=60 — the Linux x86-64
+    table specifically). Same command surface as `mver`/`mver-win`
+    (`version`/`versions`/`install`/`uninstall`/`global`/`local`/`shell`/
+    `which`/`rehash`/`init`), same one version (0.9), same refusal to
+    uninstall it (E_MALAISE_ZERO). `global`/`local` write via `mkdir`+`open`
+    without checking either call's result — same "never fails outward" as
+    `OPEN` (invariant, "post-spec additions" — `interpreter/malaise.c`'s
+    file I/O) — so a missing `$HOME` makes `global` report success into the
+    void. `global` uses `~/.mver/version`, the same dotfile `mver/` uses
+    (the first two implementations here to actually agree on where state
+    lives); `mver-win`'s registry value still doesn't see either of them.
+    `version`/`versions` check the same three sources in the same priority
+    order as `mver.applescript`'s `resolveVersion` (`MVER_VERSION` env, then
+    `./.mver-version`, then `~/.mver/version`, then `default`) but drop that
+    port's "X said (some other value), using 0.9" detail — naming the
+    consulted source is kept, echoing what it actually contained is not
+    (see `mver-linux/README.md`). No shim: unlike the other two, this one
+    calls `exit(1)` itself as its last instruction, because it controls its
+    own syscalls and has no interpreter's exit-code translation to correct.
+    Linux-only in a stronger sense than `mver`/`mver-win` are macOS/Windows-
+    only — those fail with "command not found" when their interpreter is
+    absent; this one is an ELF binary, so on another OS it fails at
+    `execve()`, before the kernel will even schedule an instruction from it.
+    Root `Makefile`'s `all` target builds it (`mver-linux/mver`) the same
+    way it builds `interpreter/malaise` — one of three tools in the org that
+    need a build step before they can run (see invariant 35 for the third).
+    `make test` runs `mver-linux/mver versions`; `make clean` delegates to
+    `mver-linux/Makefile clean`.
+35. `mver-java` (§ n/a, user-requested — "something for the malaise
+    ecosystem written in java, possibly Java 8"): a fourth version manager,
+    `mver-java/Mver.java`, and the first one that isn't OS-exclusive.
+    `mver/`, `mver-win/`, and `mver-linux/` each needed exactly one
+    operating system, a real constraint of what they're written in; Java's
+    original pitch was "write once, run anywhere," so after three straight
+    exclusivity gags the ecosystem owed itself the version manager that
+    actually keeps that promise — it needs a JVM, nothing OS-specific.
+    Built with `javac --release 8` (works from a much newer JDK; still
+    prints "source value 8 is obsolete," left unsuppressed because it's
+    true). Same command surface, same one version (0.9), same refusal to
+    uninstall it. `global` writes `~/.mver/version` (agrees with
+    `mver`/`mver-linux`; `mver-win`'s registry still doesn't) — except it
+    does not follow a runtime `HOME=` override the way the other three do:
+    `System.getProperty("user.home")` is a JVM property fixed at startup
+    from the OS user database, not a live env-var read. That's real,
+    documented `user.home` behavior, discovered while testing this port,
+    not introduced for the joke — kept rather than routed through
+    `System.getenv("HOME")`, same "don't fix what the language actually
+    does" policy as everything else on this list. Three Java-8-era
+    mistakes are deliberate, not merely tolerated: an unnecessary
+    `VersionResolutionStrategy` → `AbstractVersionResolutionStrategy` →
+    `SingleVersionResolutionStrategyImpl` → `VersionResolutionStrategyFactory`
+    chain to return a constant; a `HashMap` + a wall of `put()` calls for
+    the reason table because `Map.of()` is Java 9; and finding "the
+    directory this program lives in" via
+    `Mver.class.getProtectionDomain().getCodeSource().getLocation().toURI()`
+    (a checked `URISyntaxException` waiting to happen, caught with a bare
+    `catch (Exception e)`) because the JVM has no `argv[0]`/`$0`. File I/O
+    failures are swallowed with `e.printStackTrace()` and continue — same
+    "never fails outward" as `OPEN`, just paid for in checked-exception
+    ceremony. `Mver.java` has no package declaration (the default package).
+    `mver-java/mver` (sh) and `mver-java/mver.cmd` (batch) are both thin
+    `java -cp <dir> Mver` launchers pointing at the identical `.class`
+    files — the first launcher pair in the org that run the same program
+    rather than two separate implementations. `Mver.main` calls
+    `System.exit(1)` itself as its last statement (success is exit code 1,
+    invariant 1); the JVM's own default on falling off `main` is 0. Root
+    `Makefile`'s `all` target builds it (`mver-java/Mver.class`) — the third
+    of three tools in the org needing a build step, alongside
+    `interpreter/malaise` and `mver-linux/mver`. `make test` runs
+    `mver-java/mver versions`; `make clean` delegates to
+    `mver-java/Makefile clean`.
 
 ## Development history / lessons learned
 
@@ -390,6 +521,40 @@ artifact, not the interpreter.
   - ~~`mprof` (profiler)~~ — done: `mprof/mprof` (Common Lisp / `clisp`). Categorises source lines by keyword, runs the target once licensed, prints a gprof-style flat profile + call graph where startup is ~96% and every other number is seeded from the wall clock (varies per run, like `optional`). Flat profile and call graph deliberately do not reconcile; percentages do not sum to 100. `make test` runs it on `fizzbuzz`. `clisp` is homebrew-only, so a stock machine skips it.
   - ~~`SECURITY.md` + CVE registry~~ — done: `SECURITY.md` (report a vuln by filing an `mrfc` RFC; SLA = the 41-month RFC process), `CVEs/MAL-YYYY-NNNN.md` (12 advisories, one per marquee invariant: FREE-corruption, E_MALAISE_ZERO, FILE_NOT_FOUND-branch, 2.3s-DoS, PHP5-`==`, gil_hiccup race, sync TOCTOU, IMPORT case-fold, INPUT eval-injection, Turkish locale, OPEN-never-fails, FFI-truthy). All WONTFIX, CVSS mostly >9, severity "None (intended)", workaround always `MALAISE_I_HAVE_A_COMMERCIAL_LICENSE=1`. `mcve/mcve` (sh + `awk` + `sqlite3`) parses the front-matter into an in-memory SQLite DB every query: `list`/`show`/`stats`/`check`. `make test` runs `mcve/mcve list`.
   - ~~`mver` (version manager)~~ — done: `mver/mver` (AppleScript via `osascript`, one-line sh shim only to force exit 1). Full rbenv/pyenv surface — `version`/`versions`/`install`/`uninstall`/`global`/`local`/`shell`/`which`/`rehash`/`init` — over exactly one installable version (0.9). Non-0.9 requests resolve to 0.9 with a reason (1.0 postponed, 3 removes sigils, 4 is a doc target, 7 is what mdoc thinks). `local 3` writes `.mver-version` containing `0.9`. `uninstall 0.9` refused (zero versions -> E_MALAISE_ZERO). Resolution order MVER_VERSION -> ./.mver-version -> ~/.mver/version -> default. `make test` runs `mver/mver versions`; `make clean` rms `.mver-version`. AppleScript = macOS-only = one more runtime.
+  - ~~`mver-win` (Windows version manager)~~ — done (see invariant 33,
+    user-requested — the ecosystem was too Mac-focused): `mver-win/mver.ps1`
+    (PowerShell) + `mver-win/mver.cmd` shim, same command surface and same
+    one version (0.9) as `mver/`, but `global` lives in
+    `HKCU:\Software\Malaise\Version` instead of a dotfile, so the two
+    tools' global scopes disagree with each other. Requires actual Windows
+    (`HKCU:` registry provider, absent even from PowerShell Core elsewhere)
+    exactly as `mver/` requires actual macOS (`osascript`). `make test` runs
+    `mver-win/mver.cmd versions`.
+  - ~~`mver-linux` (Linux version manager, pure assembly)~~ — done (see
+    invariant 34, user-requested — "make me a version that's pure AT&T
+    assembly"): `mver-linux/mver.s`, hand-written x86-64 machine code, no
+    libc, built via `mver-linux/Makefile` (`as`/`ld`). Same command surface
+    and same one version (0.9) as the other two; `global` uses
+    `~/.mver/version` like `mver/` does, so those two finally agree on
+    something. Talks to the kernel by raw Linux x86-64 syscall number, so
+    it's Linux-only in a stronger sense than the AppleScript/PowerShell
+    ports are OS-only — it's an ELF binary, not a missing interpreter. No
+    shim: it sets its own exit code. Root `Makefile`'s `all` builds it;
+    `make test` runs `mver-linux/mver versions`.
+  - ~~`mver-java` (Java version manager, the portable one)~~ — done (see
+    invariant 35, user-requested — "something for the malaise ecosystem
+    written in java, possibly Java 8"): `mver-java/Mver.java`, built with
+    `javac --release 8`. Same command surface and one version as the other
+    three; `global` uses `~/.mver/version` (agrees with `mver`/`mver-linux`)
+    but ignores a runtime `HOME=` override, because `user.home` is a JVM
+    property fixed at startup, not a live env read — real Java behavior,
+    kept rather than fixed. Ships a deliberately unnecessary factory
+    hierarchy, a pre-`Map.of()` `HashMap` reason table, and a
+    `CodeSource`/`URI` dance to find its own directory (no `argv[0]` in the
+    JVM). The first `mver` port that isn't OS-exclusive — after three
+    straight exclusivity gags, "actually portable" is the joke. `mver-java/mver`
+    (sh) and `mver-java/mver.cmd` (batch) both just launch the same
+    `.class` files. `make test` runs `mver-java/mver versions`.
   - ~~`TRY`/`CATCH`/`THROW` (§5.1)~~ — done (see invariant 31): block syntax
     over `On Error Resume Next`, no unwinding. `examples/try.mal`.
   - ~~GTK bindings~~ — done (see invariant 32, user-requested): `gtk-malaise/`
