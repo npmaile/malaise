@@ -93,12 +93,13 @@ directory with its own README, written in its own language.
   and loop JIT for a smaller, syntactically-incompatible dialect of
   Malaise (own frontend, own `IF`, no strings/lists/threads — see
   `mjit/README.md`). Compiles to a flat bytecode array, runs a dispatch
-  loop; on x86-64 Linux only, a hot backward `IF...GOTO` (41+ passes,
-  `MALAISE_JIT_THRESHOLD`) whose body is pure `$v = $v +/-/* $v-or-literal`
-  gets emitted as real x86-64 into an `mmap`'d/`mprotect`'d page and
-  called directly thereafter; anything else in the loop disqualifies it
-  once, permanently (see invariant 36). Root `Makefile`'s `all` builds it;
-  `make test` runs `mjit/examples/count.mjit`.
+  loop; a hot backward `IF...GOTO` (41+ passes, `MALAISE_JIT_THRESHOLD`)
+  whose body is pure `$v = $v +/-/* $v-or-literal` gets compiled — not to
+  machine code, to a program for a second, smaller VM (also in this file,
+  eight opcodes, direct pointers into `slots[]`) — and run on that
+  directly thereafter; anything else in the loop disqualifies it once,
+  permanently (see invariant 36). Portable C99, no platform gate. Root
+  `Makefile`'s `all` builds it; `make test` runs `mjit/examples/count.mjit`.
 - `gtk-malaise/gtk_helper.py` (Python 3 + PyGObject) — GTK 3 "bindings".
   `interpreter/malaise.c`'s `GTK_*` keywords do not link GTK; `GTK_INIT`
   forks/execs this script (found via `<scriptdir>/../gtk-malaise/gtk_helper.py`,
@@ -426,20 +427,20 @@ directory with its own README, written in its own language.
     `make test` runs `mver-java/mver versions`; `make clean` delegates to
     `mver-java/Makefile clean`.
 36. `mjit` (§ n/a, user-requested — "let's actually make a jit for the
-    language" / "let's make it jit for a virtual machine"): a bytecode VM
-    and loop JIT, `mjit/mjit.c`, separate from `interpreter/malaise.c` and
-    not touching it. Its frontend compiles a smaller, DELIBERATELY
-    syntactically-incompatible dialect of Malaise — same column convention
-    (label cols 1-6, `*` at col 7) and the same `$`-sigiled ints
-    (name must start i-n, invariant 10, but checked at COMPILE time here —
-    a hard error, not a silent coercion), `GOTO`, `PRINT` of one value,
-    `HALT`, and a single-line `IF $v RELOP term GOTO label` that is NOT the
-    reference interpreter's `IF`/`THEN`/`ELSE`/`ENDIF` block: a trace
-    compiler only ever compiles a straight run of instructions between a
-    loop header and one back-edge, and block control flow doesn't reduce
-    to that, so this frontend doesn't parse it at all. No strings, no
-    lists, no threads, no type democracy — every variable is an
-    unconditional int. Compiles via a classic two-pass assembler (labels
+    language", refined to "instead of jit targeting x86, have it target a
+    c-written virtual machine"): a bytecode VM and loop JIT, `mjit/mjit.c`,
+    separate from `interpreter/malaise.c` and not touching it. Its frontend
+    compiles a smaller, DELIBERATELY syntactically-incompatible dialect of
+    Malaise — same column convention (label cols 1-6, `*` at col 7) and the
+    same `$`-sigiled ints (name must start i-n, invariant 10, but checked
+    at COMPILE time here — a hard error, not a silent coercion), `GOTO`,
+    `PRINT` of one value, `HALT`, and a single-line `IF $v RELOP term GOTO
+    label` that is NOT the reference interpreter's `IF`/`THEN`/`ELSE`/`ENDIF`
+    block: a trace compiler only ever compiles a straight run of
+    instructions between a loop header and one back-edge, and block control
+    flow doesn't reduce to that, so this frontend doesn't parse it at all.
+    No strings, no lists, no threads, no type democracy — every variable is
+    an unconditional int. Compiles via a classic two-pass assembler (labels
     first, since `GOTO` can jump forward) into a flat `Instr` array
     (`OP_MOVI`/`OP_MOV`/`OP_ADD`/`OP_SUB`/`OP_MUL`/`OP_PRINT`/`OP_PRINTI`/
     `OP_GOTO`/`OP_IFJMP`), then a `switch`-dispatch VM loop over it — the
@@ -448,33 +449,39 @@ directory with its own README, written in its own language.
     `MALAISE_JIT_THRESHOLD` (default 41 — see `mrfc`'s 41-month RFC delay;
     unrelated, allegedly) passes, `mjit` checks whether every instruction
     from the loop header to the back-edge is pure data movement/arithmetic
-    (`OP_MOVI`/`OP_MOV`/`OP_ADD`/`OP_SUB`/`OP_MUL`); if so it emits real
-    x86-64 (SysV: variable slots addressed as `[rdi+slot*8]`, `rax` as the
-    sole scratch register, `Jcc rel32` for the back-edge) into a fresh
-    `mmap(PROT_READ|PROT_WRITE)` page, `mprotect`s it to
-    `PROT_READ|PROT_EXEC` (write and execute are never both true for the
-    same page), and calls it directly on every future pass — the compiled
-    function loops internally until its own exit condition is false, so
-    one native call replaces however many bytecode dispatches were left.
-    Every opcode encoding was verified against real `as`+`objdump` output
-    before being hardcoded (same discipline as `mver-linux/mver.s` —
-    see that file's history). A loop containing anything else (`PRINT`, a
-    nested jump) is rejected exactly once with a diagnostic naming the
-    disqualifying line, then permanently blacklisted — interpreted forever,
-    no retries. The codegen is gated `#if defined(__x86_64__) &&
-    defined(__linux__)`; off that platform every hot loop explains there is
-    no backend for it and interprets forever — not a missing package the
-    way `mver/` needs `osascript`, there is simply no encoder in the file
-    for another ISA. `mjit` borrows two invariants from
-    `interpreter/malaise.c` on purpose: exit code 1 is success, 2 is the
-    first compile error (invariant 1) — and unlike the reference
-    interpreter, an unrecognized line, undefined label, out-of-32-bit-range
-    literal, or non-i-n variable IS a compile error, not something
-    silently forgiven — and the 2.3-second startup delay (invariant 2,
-    same `MALAISE_I_HAVE_A_COMMERCIAL_LICENSE` skip). `mjit/examples/count.mjit`
+    (`OP_MOVI`/`OP_MOV`/`OP_ADD`/`OP_SUB`/`OP_MUL`); if so it compiles the
+    whole loop — condition test and back-edge included — into a program for
+    a **second, smaller virtual machine**, also defined in `mjit.c`: eight
+    opcodes (`TR_MOVI`/`TR_MOV`/`TR_ADD_SS`/`TR_ADD_SI`/`TR_SUB_SS`/
+    `TR_SUB_SI`/`TR_MUL_SS`/`TR_MUL_SI`), each `TraceInstr` carrying direct
+    `long*` pointers into `slots[]` instead of the general VM's indices,
+    with the slot-vs-immediate choice for every operand resolved once at
+    compile time. `run_trace()` executes that program in an internal `for`
+    loop until its own exit condition is false, then returns to the
+    dispatch loop — one call replacing however many bytecode dispatches
+    were left. This targets NO instruction set architecture: no `mmap`, no
+    byte encoding, no platform gate — the earlier revision of this
+    invariant (real x86-64 via `mmap`/`mprotect`, Linux-only, opcode bytes
+    verified against `as`+`objdump`) was replaced outright per the second
+    request above; it remains visible in this branch's git history. A trace
+    pool (`TRACE_POOL` = 64 compiled loops per run) and a per-trace body cap
+    (`TRACE_MAX_OPS` = 32 instructions) are both fixed arrays — "no malloc"
+    applies here too — and either limit hit is a permanent bailout with its
+    own diagnostic, same as a disqualifying opcode (`PRINT`, a nested jump)
+    in the loop body. Because 32-bit immediate encoding is no longer a
+    constraint, mjit also dropped its former literal range check — a
+    `long`-range value now just compiles. `mjit` borrows two invariants
+    from `interpreter/malaise.c` on purpose: exit code 1 is success, 2 is
+    the first compile error (invariant 1) — and unlike the reference
+    interpreter, an unrecognized line, undefined label, or non-i-n
+    variable IS a compile error, not something silently forgiven — and the
+    2.3-second startup delay (invariant 2, same
+    `MALAISE_I_HAVE_A_COMMERCIAL_LICENSE` skip). `mjit/examples/count.mjit`
     counts to 2000 crossing the default threshold; `make test` runs it.
     One of four tools in the org needing a build step before it can run
-    (`mjit/Makefile`, `cc -O2 -std=c99`).
+    (`mjit/Makefile`, `cc -O2 -std=c99`) — now the only one of those four
+    whose build step doesn't buy it a new runtime requirement, since it's
+    C99, same as the interpreter.
 
 ## Development history / lessons learned
 
@@ -617,17 +624,20 @@ artifact, not the interpreter.
     `.class` files. `make test` runs `mver-java/mver versions`.
   - ~~`mjit` (bytecode VM + loop JIT)~~ — done (see invariant 36,
     user-requested: "let's actually make a jit for the language", refined
-    to "let's make it jit for a virtual machine"): `mjit/mjit.c`, a
-    separate bytecode VM for a smaller, syntactically-incompatible Malaise
-    dialect (own `IF`, no strings/lists/threads), with a loop JIT that
-    compiles a hot backward `IF...GOTO` whose body is pure
-    `$v = $v +/-/* $v-or-literal` into real x86-64 (`mmap`+`mprotect`,
-    every opcode byte checked against `as`/`objdump` first) once its
-    back-edge passes `MALAISE_JIT_THRESHOLD` (default 41) times. Anything
-    else in the loop bails permanently, once, with a diagnostic. x86-64
-    Linux only for the codegen; the bytecode tier is portable C99.
-    Borrows exit-code and startup-delay invariants from
-    `interpreter/malaise.c` on purpose. `make test` runs
+    to "instead of jit targeting x86, have it target a c-written virtual
+    machine"): `mjit/mjit.c`, a separate bytecode VM for a smaller,
+    syntactically-incompatible Malaise dialect (own `IF`, no
+    strings/lists/threads), with a loop JIT that compiles a hot backward
+    `IF...GOTO` whose body is pure `$v = $v +/-/* $v-or-literal` — once its
+    back-edge passes `MALAISE_JIT_THRESHOLD` (default 41) times — into a
+    program for a second, smaller VM (also in `mjit.c`; eight opcodes,
+    direct pointers into `slots[]`, no machine code, no `mmap`, no platform
+    gate). Anything else in the loop bails permanently, once, with a
+    diagnostic. An earlier revision emitted real x86-64 via
+    `mmap`/`mprotect` (Linux-only; every opcode byte checked against
+    `as`/`objdump` first) — replaced outright when the request changed;
+    visible in git history. Borrows exit-code and startup-delay invariants
+    from `interpreter/malaise.c` on purpose. `make test` runs
     `mjit/examples/count.mjit`.
   - ~~`TRY`/`CATCH`/`THROW` (§5.1)~~ — done (see invariant 31): block syntax
     over `On Error Resume Next`, no unwinding. `examples/try.mal`.

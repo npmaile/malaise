@@ -4,10 +4,18 @@
  * This is not part of interpreter/malaise.c and does not modify it. It is a
  * second, much smaller implementation: a two-pass assembler-style compiler
  * from a restricted Malaise dialect into a flat bytecode array, a bytecode
- * interpreter (the VM's baseline tier), and — on x86-64 Linux only — a loop
- * JIT that recognizes exactly one shape (a backward conditional jump whose
- * body is pure integer arithmetic) and compiles it to real machine code via
- * mmap/mprotect. Everything else stays on the bytecode tier forever.
+ * interpreter (the VM's baseline tier), and a loop JIT that recognizes
+ * exactly one shape (a backward conditional jump whose body is pure integer
+ * arithmetic) and compiles it — not to machine code, to a program for a
+ * second, smaller virtual machine, also written in C, whose only instructions
+ * are the ones a compiled loop can contain. No mmap, no instruction
+ * encoding, no architecture: the compilation target is a `switch` statement,
+ * same as the tier it's replacing, just a much shorter one running over
+ * pre-resolved pointers instead of the general interpreter's slot indices
+ * and immediate-or-slot branches. Whether that still earns the name "JIT" is
+ * exactly the kind of question this project doesn't resolve in its own
+ * favor; see mjit/README.md. Everything else stays on the bytecode tier
+ * forever.
  *
  * The dialect: $-sigiled integer variables (name must start i-n, invariant
  * 10 — enforced here at COMPILE time, not coerced silently the way the
@@ -31,7 +39,6 @@
 #define _DEFAULT_SOURCE
 
 #include <ctype.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -253,8 +260,6 @@ static void parse_statement(const char *text, int pc, int srcline) {
         if (lbl < 0) compile_err(srcline, "IF...GOTO target label not found");
         tp++;
         if (tp != nt) compile_err(srcline, "unexpected tokens after IF...GOTO");
-        if (b_is_imm && (imm > INT32_MAX || imm < INT32_MIN))
-            compile_err(srcline, "literal out of mjit's 32-bit range");
         ins.op = OP_IFJMP; ins.src1 = leftslot; ins.b_is_imm = b_is_imm;
         ins.src2 = src2; ins.imm = imm; ins.rel = rel; ins.target = lbl;
         code[pc] = ins; return;
@@ -273,8 +278,6 @@ static void parse_statement(const char *text, int pc, int srcline) {
 
     if (tp == nt) {
         if (term1.k == TK_NUM) {
-            if (term1.num > INT32_MAX || term1.num < INT32_MIN)
-                compile_err(srcline, "literal out of mjit's 32-bit range");
             ins.op = OP_MOVI; ins.dst = dst; ins.imm = term1.num;
         } else {
             ins.op = OP_MOV; ins.dst = dst; ins.src1 = getslot(term1.text, srcline);
@@ -301,8 +304,6 @@ static void parse_statement(const char *text, int pc, int srcline) {
     if (tp != nt) compile_err(srcline, "mjit allows at most one operator per expression");
     ins.op = op; ins.dst = dst; ins.src1 = src1;
     if (term2.k == TK_NUM) {
-        if (term2.num > INT32_MAX || term2.num < INT32_MIN)
-            compile_err(srcline, "literal out of mjit's 32-bit range");
         ins.b_is_imm = 1; ins.imm = term2.num;
     } else if (term2.k == TK_VAR) {
         ins.src2 = getslot(term2.text, srcline);
@@ -361,69 +362,45 @@ static void compile_program(void) {
 
 /* -------------------------------------------------------------------- JIT */
 
-#if defined(__x86_64__) && defined(__linux__)
-#define MJIT_HAS_NATIVE 1
-#include <sys/mman.h>
+/* mjit's compilation target isn't hardware. It's this: a second, smaller
+   virtual machine, also written in C, whose instruction set is exactly the
+   eight shapes a compiled loop body can contain — each one pre-resolved at
+   compile time (slot-vs-immediate decided once, not re-checked every pass)
+   and addressed by a direct pointer into `slots[]` instead of an index into
+   it. Running that is real specialization, the same idea as CPython 3.13's
+   Tier 2 micro-op interpreter or a threaded-code Forth: no mmap, no
+   instruction encoding, no architecture to be right about. Whether a
+   compiler whose output is still just a `switch` earns the name "JIT" is
+   exactly the kind of question this project declines to settle in its own
+   favor. It uses the word anyway. */
 
-typedef void (*CompiledFn)(long *);
-static CompiledFn compiled[MAXCODE];
+#define TRACE_MAX_OPS 32   /* a loop body longer than this doesn't compile */
+#define TRACE_POOL    64   /* distinct hot loops mjit will compile in one run */
 
-static unsigned char jbuf[4096];  /* one scratch page; reused per attempt,
-                                      never grown. a trace that doesn't fit
-                                      doesn't compile. */
-static int jn;
+typedef enum {
+    TR_MOVI, TR_MOV,
+    TR_ADD_SS, TR_ADD_SI, TR_SUB_SS, TR_SUB_SI, TR_MUL_SS, TR_MUL_SI
+} TrOp;
 
-static void emit8(unsigned v)   { jbuf[jn++] = (unsigned char)v; }
-static void emit32(int32_t v)   { memcpy(jbuf + jn, &v, 4); jn += 4; }
+typedef struct {
+    TrOp op;
+    long *dst, *src1, *src2;  /* direct pointers into slots[]; src2 unused
+                                  by the *_SI and TR_MOVI/TR_MOV forms */
+    long imm;
+} TraceInstr;
 
-/* every encoding below was checked against `as`+`objdump` output before
-   being hardcoded here, the same way mver-linux/mver.s was written — see
-   that file's history for the reasoning against hand-guessing opcodes. */
-static void emit_load(int slot)  { emit8(0x48); emit8(0x8B); emit8(0x87); emit32(slot*8); }              /* mov rax,[rdi+slot*8] */
-static void emit_store(int slot) { emit8(0x48); emit8(0x89); emit8(0x87); emit32(slot*8); }              /* mov [rdi+slot*8],rax */
-static void emit_addmem(int s)   { emit8(0x48); emit8(0x03); emit8(0x87); emit32(s*8); }                 /* add rax,[rdi+s*8]    */
-static void emit_submem(int s)   { emit8(0x48); emit8(0x2B); emit8(0x87); emit32(s*8); }                 /* sub rax,[rdi+s*8]    */
-static void emit_mulmem(int s)   { emit8(0x48); emit8(0x0F); emit8(0xAF); emit8(0x87); emit32(s*8); }    /* imul rax,[rdi+s*8]   */
-static void emit_movimm(int32_t v){ emit8(0xB8); emit32(v); }                                            /* mov eax,imm32        */
-static void emit_addimm(int32_t v){ emit8(0x48); emit8(0x05); emit32(v); }                                /* add rax,imm32        */
-static void emit_subimm(int32_t v){ emit8(0x48); emit8(0x2D); emit32(v); }                                /* sub rax,imm32        */
-static void emit_mulimm(int32_t v){ emit8(0x48); emit8(0x69); emit8(0xC0); emit32(v); }                   /* imul rax,rax,imm32   */
-static void emit_cmpmem(int s)   { emit8(0x48); emit8(0x3B); emit8(0x87); emit32(s*8); }                  /* cmp rax,[rdi+s*8]    */
-static void emit_cmpimm(int32_t v){ emit8(0x48); emit8(0x3D); emit32(v); }                                /* cmp rax,imm32        */
-static void emit_ret(void)       { emit8(0xC3); }
+typedef struct {
+    TraceInstr body[TRACE_MAX_OPS];
+    int nbody;
+    long *cmp_a, *cmp_b;   /* cmp_b unused when cmp_is_imm */
+    long cmp_imm;
+    int cmp_is_imm;
+    Rel rel;
+} Trace;
 
-static void emit_jcc_back(Rel rel, int target_off) {
-    unsigned cc;
-    switch (rel) {
-        case REL_LT: cc = 0x8C; break;   /* JL  */
-        case REL_GT: cc = 0x8F; break;   /* JG  */
-        case REL_LE: cc = 0x8E; break;   /* JLE */
-        case REL_GE: cc = 0x8D; break;   /* JGE */
-        case REL_EQ: cc = 0x84; break;   /* JE  */
-        default:     cc = 0x85; break;   /* JNE */
-    }
-    emit8(0x0F); emit8(cc);
-    int32_t rel32 = (int32_t)(target_off - (jn + 4));  /* rel32 is relative
-                                                            to the NEXT instr */
-    emit32(rel32);
-}
-
-static void emit_instr(Instr *ins) {
-    switch (ins->op) {
-    case OP_MOVI: emit_movimm((int32_t)ins->imm); emit_store(ins->dst); break;
-    case OP_MOV:  emit_load(ins->src1); emit_store(ins->dst); break;
-    case OP_ADD:  emit_load(ins->src1);
-                  if (ins->b_is_imm) emit_addimm((int32_t)ins->imm); else emit_addmem(ins->src2);
-                  emit_store(ins->dst); break;
-    case OP_SUB:  emit_load(ins->src1);
-                  if (ins->b_is_imm) emit_subimm((int32_t)ins->imm); else emit_submem(ins->src2);
-                  emit_store(ins->dst); break;
-    case OP_MUL:  emit_load(ins->src1);
-                  if (ins->b_is_imm) emit_mulimm((int32_t)ins->imm); else emit_mulmem(ins->src2);
-                  emit_store(ins->dst); break;
-    default: break;  /* unreachable: trace_is_compilable already excluded these */
-    }
-}
+static Trace  trace_pool[TRACE_POOL];
+static int    trace_pool_used = 0;
+static Trace *trace_for[MAXCODE];   /* indexed by jump_pc; NULL = not compiled */
 
 static int trace_is_compilable(int target, int endpc, int *bad_pc) {
     for (int pc = target; pc < endpc; pc++) {
@@ -439,8 +416,8 @@ static int trace_is_compilable(int target, int endpc, int *bad_pc) {
    target <= jump_pc). Real trace compilers bail out of a trace the moment
    it does something they don't model (a call, an allocation, I/O) and fall
    back to the baseline tier for good; this is that, at toy scale: PRINT,
-   nested nested jumps, anything but the five arithmetic ops, and the trace
-   is permanently rejected. */
+   nested jumps, anything but the five arithmetic ops, and the trace is
+   permanently rejected. */
 static int try_compile_trace(int jump_pc) {
     int target = code[jump_pc].target;
     int bad;
@@ -451,48 +428,89 @@ static int try_compile_trace(int jump_pc) {
                code[jump_pc].srcline, jit_threshold, code[bad].srcline);
         return 0;
     }
-
-    jn = 0;
-    int loop_top = jn; /* == 0 */
-    for (int pc = target; pc < jump_pc; pc++) {
-        if (jn > 4000) {
-            printf("mjit: line %d is hot but its body doesn't fit in one code "
-                   "page; interpreting this loop forever\n", code[jump_pc].srcline);
-            return 0;
-        }
-        emit_instr(&code[pc]);
+    if (jump_pc - target > TRACE_MAX_OPS) {
+        printf("mjit: line %d is hot but its body is longer than mjit's trace "
+               "VM allows (%d instructions); interpreting this loop forever\n",
+               code[jump_pc].srcline, TRACE_MAX_OPS);
+        return 0;
     }
-    Instr *j = &code[jump_pc];
-    emit_load(j->src1);
-    if (j->b_is_imm) emit_cmpimm((int32_t)j->imm); else emit_cmpmem(j->src2);
-    emit_jcc_back(j->rel, loop_top);
-    emit_ret();
+    if (trace_pool_used >= TRACE_POOL) {
+        printf("mjit: line %d is hot, but mjit has already compiled %d distinct "
+               "loops this run; interpreting this loop forever\n",
+               code[jump_pc].srcline, TRACE_POOL);
+        return 0;
+    }
 
-    void *page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
-                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (page == MAP_FAILED) return 0;
-    memcpy(page, jbuf, (size_t)jn);
-    if (mprotect(page, 4096, PROT_READ | PROT_EXEC) != 0) return 0;  /* W^X:
-        writable and executable are never true at once for this page */
-    compiled[jump_pc] = (CompiledFn)page;
-    printf("mjit: line %d is hot (%d+ passes); compiled to %d bytes of native x86-64\n",
-           j->srcline, jit_threshold, jn);
+    Trace *tr = &trace_pool[trace_pool_used++];
+    tr->nbody = 0;
+    for (int pc = target; pc < jump_pc; pc++) {
+        Instr *ins = &code[pc];
+        TraceInstr *ti = &tr->body[tr->nbody++];
+        ti->dst = &slots[ins->dst];
+        switch (ins->op) {
+        case OP_MOVI: ti->op = TR_MOVI; ti->imm = ins->imm; break;
+        case OP_MOV:  ti->op = TR_MOV;  ti->src1 = &slots[ins->src1]; break;
+        case OP_ADD:  ti->src1 = &slots[ins->src1];
+                      if (ins->b_is_imm) { ti->op = TR_ADD_SI; ti->imm = ins->imm; }
+                      else               { ti->op = TR_ADD_SS; ti->src2 = &slots[ins->src2]; }
+                      break;
+        case OP_SUB:  ti->src1 = &slots[ins->src1];
+                      if (ins->b_is_imm) { ti->op = TR_SUB_SI; ti->imm = ins->imm; }
+                      else               { ti->op = TR_SUB_SS; ti->src2 = &slots[ins->src2]; }
+                      break;
+        case OP_MUL:  ti->src1 = &slots[ins->src1];
+                      if (ins->b_is_imm) { ti->op = TR_MUL_SI; ti->imm = ins->imm; }
+                      else               { ti->op = TR_MUL_SS; ti->src2 = &slots[ins->src2]; }
+                      break;
+        default: break;  /* unreachable: trace_is_compilable already excluded these */
+        }
+    }
+
+    Instr *j = &code[jump_pc];
+    tr->cmp_a = &slots[j->src1];
+    tr->cmp_is_imm = j->b_is_imm;
+    if (j->b_is_imm) tr->cmp_imm = j->imm; else tr->cmp_b = &slots[j->src2];
+    tr->rel = j->rel;
+
+    trace_for[jump_pc] = tr;
+    printf("mjit: line %d is hot (%d+ passes); compiled to a %d-instruction "
+           "trace on mjit's own VM\n", j->srcline, jit_threshold, tr->nbody);
     return 1;
 }
-#else
-typedef void (*CompiledFn)(long *);
-static CompiledFn compiled[MAXCODE];
 
-/* Off x86-64 Linux there is no codegen backend at all — not a missing
-   package, the way mver/ needs osascript; there is simply no encoder for
-   this ISA in this file. Every hot loop bails, forever, honestly. */
-static int try_compile_trace(int jump_pc) {
-    printf("mjit: line %d is hot (%d+ passes), but this build has no native "
-           "code generator for this CPU/OS (x86-64 Linux only); interpreting "
-           "this loop forever\n", code[jump_pc].srcline, jit_threshold);
-    return 0;
+/* Runs a compiled trace to completion: the whole loop, condition test and
+   back-edge included, without returning to the bytecode dispatch loop in
+   between. This is the entire payoff — however many bytecode dispatches
+   were left in this loop become one call to this function. */
+static void run_trace(Trace *t) {
+    for (;;) {
+        for (int i = 0; i < t->nbody; i++) {
+            TraceInstr *ti = &t->body[i];
+            switch (ti->op) {
+            case TR_MOVI:   *ti->dst = ti->imm; break;
+            case TR_MOV:    *ti->dst = *ti->src1; break;
+            case TR_ADD_SS: *ti->dst = *ti->src1 + *ti->src2; break;
+            case TR_ADD_SI: *ti->dst = *ti->src1 + ti->imm; break;
+            case TR_SUB_SS: *ti->dst = *ti->src1 - *ti->src2; break;
+            case TR_SUB_SI: *ti->dst = *ti->src1 - ti->imm; break;
+            case TR_MUL_SS: *ti->dst = *ti->src1 * *ti->src2; break;
+            case TR_MUL_SI: *ti->dst = *ti->src1 * ti->imm; break;
+            }
+        }
+        long lv = *t->cmp_a;
+        long rv = t->cmp_is_imm ? t->cmp_imm : *t->cmp_b;
+        int cond;
+        switch (t->rel) {
+            case REL_LT: cond = lv <  rv; break;
+            case REL_GT: cond = lv >  rv; break;
+            case REL_LE: cond = lv <= rv; break;
+            case REL_GE: cond = lv >= rv; break;
+            case REL_EQ: cond = lv == rv; break;
+            default:     cond = lv != rv; break;
+        }
+        if (!cond) return;
+    }
 }
-#endif
 
 /* ---------------------------------------------------------------------- VM */
 
@@ -517,16 +535,17 @@ static void run(void) {
             /* only backward jumps are loop candidates; a forward IF is just
                a conditional and is never hot-tracked or compiled. */
             if (ins->target <= pc && !blacklisted[pc]) {
-                if (compiled[pc]) {
-                    compiled[pc](slots);  /* runs until the condition is
-                                              false, however many iterations
-                                              that takes, then returns here */
+                if (trace_for[pc]) {
+                    run_trace(trace_for[pc]);  /* runs until the condition is
+                                                   false, however many
+                                                   iterations that takes,
+                                                   then returns here */
                     pc = pc + 1;
                     break;
                 }
                 if (++hits[pc] >= jit_threshold) {
                     if (try_compile_trace(pc)) {
-                        compiled[pc](slots);
+                        run_trace(trace_for[pc]);
                         pc = pc + 1;
                         break;
                     }

@@ -14,7 +14,7 @@ mjit/mjit examples/count.mjit
 ```
 
 ```
-mjit: line 4 is hot (41+ passes); compiled to 40 bytes of native x86-64
+mjit: line 4 is hot (41+ passes); compiled to a 1-instruction trace on mjit's own VM
 2000
 ```
 
@@ -55,46 +55,60 @@ using syntax borrowed from real Malaise where it overlaps:
 There are no strings, no lists, no `FILE_NOT_FOUND`, no PHP 5 `==`, no type
 democracy, no threads. Every variable is an int, unconditionally. Removing
 every type but one isn't a missing feature; it's how a loop body gets
-simple enough to compile to machine code in about 300 lines of C.
+simple enough to compile in about 300 lines of C.
 
-An unrecognized line, an undefined label, an out-of-range literal, or a
-variable that doesn't start i-n is a **compile error** — printed to stdout
-(invariant 5) and exit code 2 (invariant 1: 2 is the first error).
-`interpreter/malaise` never fails outward; `mjit` fails outward
-constantly. That is what makes it a compiler and not an interpreter.
+An unrecognized line, an undefined label, or a variable that doesn't start
+i-n is a **compile error** — printed to stdout (invariant 5) and exit code
+2 (invariant 1: 2 is the first error). `interpreter/malaise` never fails
+outward; `mjit` fails outward constantly. That is what makes it a compiler
+and not an interpreter.
 
 ## The JIT
 
 Every backward `IF ... GOTO` (a loop's back-edge) has a per-instruction hit
 counter. Once one crosses `MALAISE_JIT_THRESHOLD` (default 41 — see
-`mrfc`'s 41-month RFC delay; unrelated, allegedly) `mjit` looks at every
+`mrfc`'s 41-month RFC delay; unrelated, allegedly), `mjit` looks at every
 bytecode instruction between the loop's header and its back-edge. If all of
 them are `$v = $v +/-/* $v-or-literal` (data movement and arithmetic, in
-any mix), it emits real x86-64 machine code for the whole loop — condition
-test, back-edge, and all — into a fresh `mmap`'d page (`PROT_READ|PROT_WRITE`
-while being written, `mprotect`'d to `PROT_READ|PROT_EXEC` once and never
-touched again: writable and executable are never true for the same page at
-the same time), and calls it directly from then on. The compiled function
-loops **internally** until the exit condition is false and only then
-returns to the VM, so a hot loop that would otherwise take 2000 bytecode
-dispatches instead costs one function call.
+any mix), it compiles the whole loop — condition test, back-edge, and all —
+into a program for a **second, smaller virtual machine**, also written in
+`mjit.c`, and calls that from then on instead of going back through the
+general bytecode dispatch loop.
+
+That second VM's entire instruction set is eight opcodes: a move, an
+immediate load, and add/sub/mul each in a slot-slot and a slot-immediate
+form. Each compiled instruction carries **direct pointers into `slots[]`**
+instead of the general VM's slot indices, and the immediate-vs-variable
+choice for each operand is baked in once, at compile time, instead of
+being branched on every single pass the way the bytecode tier has to.
+Running that specialized form *is* the whole payoff: no bytecode dispatch
+overhead, no operand resolution, just the arithmetic the loop actually
+does, in a tight `for` loop that keeps going until the loop's own exit
+condition is false and only then returns control to the VM. A loop that
+would have cost 2000 bytecode dispatches instead costs one function call.
+
+This is not machine code. There is no `mmap`, no instruction encoding, no
+architecture to be right about — the compilation target is a `switch`
+statement, same as the tier it replaces, just a much smaller one running
+over pre-resolved pointers. It is the same idea as CPython 3.13's Tier 2
+micro-op interpreter, or a threaded-code Forth: real specialization,
+zero machine code. Whether a compiler whose output is still just C
+deserves to be called a JIT is exactly the kind of question this project
+declines to settle in its own favor. `mjit` uses the word anyway.
 
 If the loop contains anything else — `PRINT`, a nested loop, `GOTO` — the
 trace is rejected once, a diagnostic names the exact disqualifying line,
 and that back-edge is blacklisted forever: it interprets on every future
-pass, no retries. Every instruction encoding
-(`mov`/`add`/`sub`/`imul`/`cmp`/`Jcc` against `[rdi+slot*8]`, immediates,
-and both the short and near conditional-jump forms) was verified against
-real `as`+`objdump` output before being hardcoded — the same discipline
-`mver-linux/mver.s` used, for the same reason: guessing an opcode byte and
-finding out at `mmap`-and-jump time is not a debugging session worth having.
+pass, no retries. A loop body longer than 32 instructions, or a program
+with more than 64 distinct hot loops in one run, hits the same permanent
+bailout, with its own diagnostic — mjit's trace pool is a fixed array,
+like everything else in this org that calls itself "no malloc."
 
-**x86-64 Linux only.** This is not a missing package the way `mver/`
-needs `osascript` — there is simply no code generator in this file for any
-other instruction set or calling convention. On any other platform, every
-hot loop prints that it's hot, explains there's no backend, and
-interprets forever. The bytecode tier is portable C99 and runs everywhere;
-only the part that emits machine code doesn't.
+Because the target is portable C and not an ISA, this tier runs
+everywhere `mjit` itself builds — no platform gate, unlike an earlier
+revision of this file, which emitted real x86-64 via `mmap`/`mprotect`
+and only worked on Linux. That version is still visible in this branch's
+history if you want to see what "target real hardware instead" costs.
 
 ## Exit codes, and other borrowed invariants
 
