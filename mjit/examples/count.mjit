@@ -1,0 +1,6 @@
+      * mjit demo: count well past the default JIT threshold (41), natively
+       $i = 0
+LOOP   $i = $i + 1
+       IF $i < 2000 GOTO LOOP
+       PRINT $i
+       HALT

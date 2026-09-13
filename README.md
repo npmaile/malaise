@@ -44,13 +44,16 @@ compatibility with the others.
 | [`mver-win/`](mver-win/) | PowerShell | The same version manager, again, because `mver/` requires macOS and won't even run elsewhere. Global scope lives in the registry. Windows-only. |
 | [`mver-linux/`](mver-linux/) | x86-64 assembly (AT&T) | The same version manager a third time. No libc, no runtime — raw Linux syscalls. Linux-only, more fundamentally than the other two: it's an ELF binary, not a missing interpreter. |
 | [`mver-java/`](mver-java/) | Java 8 | The same version manager a fourth time — and the first that isn't OS-exclusive, which after three straight exclusivity gags is itself the joke. Enterprise factory hierarchy included at no extra charge. |
+| [`mjit/`](mjit/) | C99 | A bytecode VM and loop JIT for a restricted, syntactically-incompatible dialect of Malaise. Compiles hot loops to a second, smaller VM, also in C — no machine code, no platform gate. Everything else interprets forever. |
 | [`gtk-malaise/`](gtk-malaise/) | Python 3 (PyGObject) | GTK 3 bindings. Not FFI — a second process, spoken to over a pipe. `GTK_INIT`/`GTK_WINDOW`/`GTK_POLL`/… |
 | [`homepage/`](homepage/) | HTML/CSS + WebAssembly | The organisation's marketing site, deployed to [npmaile.github.io/malaise](https://npmaile.github.io/malaise/) by `.github/workflows/pages.yml`. Includes a [browser playground](https://npmaile.github.io/malaise/try.html) running the interpreter compiled to WASM. |
 
 To use the ecosystem you install all ~16 language runtimes (one of them
 isn't a runtime at all, just a kernel), at least three of which are
 mutually exclusive by operating system, and exactly one of which runs on
-all three anyway. See
+all three anyway. `mjit` needs no new entry on that list — it's C99, same
+as the interpreter — which, after four additions in a row that each
+brought their own toolchain, is the surprising one. See
 [`TOOLCHAIN.md`](TOOLCHAIN.md). Security policy: [`SECURITY.md`](SECURITY.md)
 (report vulnerabilities by filing an RFC; the SLA is the RFC process).
 

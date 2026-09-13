@@ -3,6 +3,7 @@ interpreter/malaise
 mver-linux/mver
 mver-linux/mver.o
 mver-java/*.class
+mjit/mjit
 malaise_modules/
 condolence-envs/
 *.lock

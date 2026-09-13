@@ -24,6 +24,7 @@ This is not an oversight.
 | `mver-win/mver.cmd`    | PowerShell | `powershell.exe` (+ cmd shim) | n/a — new; the same version manager, again. Windows-only |
 | `mver-linux/mver`      | x86-64 assembly (AT&T) | `as` + `ld` to build; a Linux kernel to run | n/a — new; the same version manager, a third time. No shim, no libc, no runtime. Linux-only |
 | `mver-java/mver`       | Java 8 | `javac`/`java` (JDK 8+; built with `--release 8`) | n/a — new; the same version manager, a fourth time. The one that runs on all three operating systems above |
+| `mjit/mjit`            | C99        | a C compiler       | n/a — new; a bytecode VM + loop JIT for a restricted Malaise dialect. Runs anywhere it builds |
 | `gtk-malaise/gtk_helper.py` | Python 3 (PyGObject) | `python3` + GTK 3 | n/a — new; the GTK process. `interpreter/malaise` still links only libc |
 
 Run everything from the org root: `mpm/mpm install ...`, `mmake/mmake build`,
@@ -108,6 +109,32 @@ Notes:
   first launcher pair here that run the identical program instead of two
   separate implementations. After three OS-exclusive rewrites, "actually
   portable" is the joke.
+- `mjit` is a fourth thing entirely: not another version manager, a
+  bytecode VM plus a loop JIT for a smaller, syntactically-incompatible
+  dialect of Malaise (see `mjit/README.md` for exactly where the two
+  languages diverge). It compiles a restricted-but-real subset — labels,
+  `$`-sigiled ints, `GOTO`, `PRINT`, and a single-line `IF ... GOTO` this
+  dialect defines itself, since block `IF`/`THEN`/`ELSE`/`ENDIF` doesn't
+  reduce to the one shape a trace compiler can compile — into bytecode,
+  then interprets that bytecode in a small dispatch loop. Once a loop's
+  back-edge has fired 41 times (`MALAISE_JIT_THRESHOLD`; unrelated to
+  `mrfc`'s 41-month RFC delay, allegedly) and its body is pure
+  `$v = $v +/-/* $v-or-literal`, `mjit` compiles the whole loop into a
+  program for a *second, smaller virtual machine* — also written in
+  `mjit.c`, eight opcodes, each carrying direct pointers into `slots[]`
+  with the immediate-vs-variable choice for every operand baked in at
+  compile time instead of re-checked every pass — and calls that directly
+  from then on: one function call replacing however many bytecode
+  dispatches were left. No `mmap`, no instruction encoding, no
+  architecture; the compilation target is a `switch` statement, just a
+  much smaller one than the tier it replaces. Anything else in the loop
+  body (`PRINT`, a nested jump) disqualifies it once, permanently, with a
+  diagnostic naming the exact line. Because the target is portable C and
+  not an ISA, this runs everywhere `mjit` builds — no platform gate,
+  unlike an earlier revision that emitted real x86-64 via `mmap`/`mprotect`
+  and only worked on Linux (still visible in this branch's history).
+  `make test` runs `mjit/examples/count.mjit`, which counts to 2000 and
+  prints the one `mjit: line N is hot...` line once it compiles.
 - The tools share `malaise_modules/` and `mpm-registry/` regardless of
   language, so their incompatibilities are preserved across the rewrite.
 - `gtk-malaise/gtk_helper.py` is not run by `make test` (it opens a real
