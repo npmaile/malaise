@@ -34,6 +34,74 @@ binary; migrating it needs a migration tool). It reports progress against the
 breaks all code, and breaking all code is the release's job, not the
 migration's.
 
+## REPL
+
+```sh
+./malaise
+```
+
+Running the binary with no file starts an interactive session — the same
+entry point every REPL-having language uses for "no script, start
+talking." It is not a second implementation the way `mjit`/`mver-*` are:
+it is the exact same `lines[]`, `vars[]`, `threads[]`, `execline()`,
+`lint()`, and `type_democracy()` the file path uses, just fed one line at
+a time instead of all at once. Two commands exist — `.list` (show every
+line accepted so far; there is no editor, so this is the only way to see
+your own program) and `.exit`/`.quit` (leave; EOF does the same). Every
+other input is a line of Malaise, under the exact same column rules as a
+file: label in 1–6, `*` at 7 for a comment, code from 8. Typing `PRINT 5`
+flush against the left margin does not print 5 — the first six characters
+become a label named `PRINT`, and there is no code left to run. This is
+not a REPL convenience gap; it is the file format, working exactly as
+specified, on your first line.
+
+Because your session *is* a program being built one line at a time, and
+because Malaise's control flow is just physical position in that program,
+several things follow that a file never has to think about:
+
+- **A label you typed earlier is a real `GOTO`/`SPAWN` target from then
+  on**, including jumping backward into your own REPL history. Loops work
+  the ordinary way: define a label, do some work, `IF ... GOTO` back to
+  it — the interpreter cannot tell your history from a file it loaded all
+  at once, because it isn't a different code path.
+- **Forward references don't work.** A file loads every line before
+  running any of them, so `GOTO`/`SPAWN` to a label defined later in the
+  file is completely normal. The REPL runs each line as it arrives, so a
+  label you haven't typed yet simply doesn't exist when the jump executes
+  — indistinguishable from a label that will never exist. There is no way
+  to fix this without buffering input you haven't typed, which is a
+  different tool.
+- **`TEST "name"` / `ENDTEST` blocks are visibly weird**, and correctly
+  so: `TEST` is recorded as a test block the moment you type it, with the
+  only end it can possibly know yet — the very next line — so the
+  interpreter immediately skips past that one line live, without running
+  it, because as far as it can tell the test is already over. Everything
+  you type after that runs normally, live, right up through `ENDTEST` —
+  until `.exit` finally sees the real boundary and assertly runs the whole
+  thing again, correctly bounded, shuffled with anything else you defined
+  that session. One line quietly skipped live, the rest run twice.
+- **A `SPAWN`ed worker whose body you typed interactively already ran
+  once**, inline, as ordinary top-level code, the moment you typed it —
+  there is no way to define a routine without also reaching it, absent a
+  forward `GOTO` past it, and forward `GOTO` doesn't work here (see
+  above). A label loaded before the session started (via `IMPORT`) does
+  not have this problem, because the whole file it lives in was loaded at
+  once, the normal way.
+- **`SNAPSHOT` works**, against `repl.snap` in the current directory
+  (loaded at the start of the session, saved at `.exit`) — a REPL session
+  has no `argv[1]` to derive a snapshot filename from, so it gets a fixed
+  one instead.
+- `lint()` and `type_democracy()` re-run over the *entire* accumulated
+  session after every single line, exactly the cost a much bigger file
+  would pay on every load, paid here on every keystroke instead. A lint
+  nag you've already seen (e.g. "WHILE is supported for compatibility")
+  reprints every round for as long as the offending line exists in your
+  session, because nothing here tracks "already told you."
+
+None of the above is fixed, because none of it is a bug: it is what
+"the reference interpreter, fed one line at a time" actually does. See
+invariant 37 in `CLAUDE.md`.
+
 ## Source layout (load-bearing)
 
 | Columns | Purpose |

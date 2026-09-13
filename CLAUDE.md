@@ -18,11 +18,13 @@ sober fact. Preserve that voice in all code comments and docs.
 The repo is laid out like a GitHub **organisation**: each component is a
 directory with its own README, written in its own language.
 
-- `interpreter/malaise.c` — the entire interpreter, single file, C99, ~1650
+- `interpreter/malaise.c` — the entire interpreter, single file, C99, ~2000
   lines. Line-based tree-walker (BASIC/COBOL style): load → lint → type
   democracy → schedule (green threads) → assertly. No malloc; fixed-size
   buffers throughout (intentional, keep it). `interpreter/Makefile` builds
-  `interpreter/malaise`.
+  `interpreter/malaise`. Bare invocation (no file argument) drops into a
+  REPL (`repl()`/`schedule_repl()`) that reuses this same pipeline one
+  line at a time instead of replacing it (see invariant 37).
 - Root `Makefile` — organisation CI: `make` delegates to `interpreter/`,
   `make test` builds then runs every tool against the others **from the org
   root** (so `malaise_modules/`, `*.lock`, `DOCS.md`, `.mmake-cache`,
@@ -482,6 +484,59 @@ directory with its own README, written in its own language.
     (`mjit/Makefile`, `cc -O2 -std=c99`) — now the only one of those four
     whose build step doesn't buy it a new runtime requirement, since it's
     C99, same as the interpreter.
+37. REPL (§ n/a, user-requested — "let's get a repl going"): `malaise` with
+    no file argument calls `repl()` instead of printing usage (was `argc<2`
+    → exit 2; now bare invocation is the same entry point every
+    REPL-having language uses). Not a second implementation — it is
+    `execline()`/`lint()`/`type_democracy()` themselves, fed one line at a
+    time into the SAME `lines[]`/`vars[]`/`threads[]` a file would have
+    loaded into, via a shared `split_source_line()` helper factored out of
+    `loadfile()` (both now call it; file-mode behavior is unchanged — this
+    was a refactor, not a rewrite). Two REPL-only commands: `.list` (print
+    every accepted line — there is no editor, so this is the only way to
+    see your own program, the one command every line-numbered BASIC REPL
+    had) and `.exit`/`.quit` (EOF does the same). Everything else is a
+    line of Malaise under the identical column rule as a file (label 1-6,
+    `*` at 7, code from 8) — `PRINT 5` flush left parses as label `PRINT`
+    with no code, on the first try, for everyone, forever.
+    `schedule_repl()` is `schedule()` with one changed rule: reaching the
+    end of currently-typed lines (`pc>=nlines`) pauses a thread instead of
+    killing it, so a `SPAWN`ed worker resumes across rounds exactly like
+    the main thread does; there is no deadlock detector, since a round is
+    bounded by input already given (no progress this round just means
+    come back after the next line). Because a REPL session's control flow
+    is genuinely just physical position in one growing program, several
+    things are real, structural consequences of that, not new special
+    cases: (a) a label typed earlier is a live `GOTO`/`SPAWN` target,
+    including backward into your own history — this is the whole feature
+    working as intended; (b) forward references don't work (a label not
+    yet typed doesn't exist yet, indistinguishable from one that never
+    will) — file mode has no analog because a whole file loads before any
+    of it runs; (c) `scan_tests()` — previously safe to call only once,
+    since file mode only ever called it once — now runs after every line
+    and had to be made idempotent (find-and-refresh a `TestBlk` by its
+    `start` line instead of always appending a new one; a real bugfix,
+    not a joke, and behavior-neutral for file mode's single call) so that
+    a `TEST "name"` typed without its `ENDTEST` yet gets recorded
+    immediately with the only end it can know — the very next line —
+    causing execline()'s existing TEST-skip logic to jump over exactly
+    that one line, live, without running it; everything up through
+    `ENDTEST` then runs normally, live, and the whole block runs again,
+    correctly bounded, when `.exit`'s final `scan_tests()`+`run_tests()`
+    pass finally sees it; (d) a `SPAWN`ed worker whose body you typed
+    interactively already ran once, inline, as ordinary top-level code,
+    because there is no forward `GOTO` to guard it the way file-mode
+    workers are guarded — verified safe (not a crash risk) by spawning a
+    self-referential worker at the REPL: it cascades through
+    `SPAWN`'s existing `nthreads>=MAXTHREADS` bounds check and stops
+    cleanly at 16 threads, the same guard file mode already relies on.
+    `snap_path` is fixed to `repl.snap` (a session has no `argv[1]` to
+    derive one from) with `load_snaps()`/`save_snaps()` at start/`.exit`.
+    `lint()`/`type_democracy()` re-run over the whole accumulated session
+    after every line — the same cost a much bigger file pays once per
+    load, paid here once per line, including previously-seen nags
+    reprinting for as long as the offending line is in the session. See
+    `interpreter/README.md`'s REPL section for the full writeup.
 
 ## Development history / lessons learned
 
@@ -647,6 +702,20 @@ artifact, not the interpreter.
     `GTK_SETTEXT`/`GTK_SHOW`/`GTK_ONCLICK`/`GTK_ONCLOSE`/`GTK_POLL`/`GTK_QUIT`.
     No scheduler integration — `GTK_POLL` in a `WHILE 1` is the event loop.
     `examples/gtk.mal`; not run by `make test` (opens a real window).
+  - ~~REPL~~ — done (see invariant 37, user-requested: "let's get a repl
+    going"): bare `malaise` (no file) calls `repl()`, reusing
+    `execline()`/`lint()`/`type_democracy()` unchanged, fed one line at a
+    time into the same global state a file loads into. `.list`/`.exit`
+    are the only two REPL-only commands; everything else is a line of
+    Malaise under the same column rules as a file. `schedule_repl()`
+    pauses a thread at the current input boundary instead of killing it,
+    so `SPAWN`ed workers persist across rounds. `scan_tests()` had a real
+    bug fixed (it wasn't safe to call more than once; file mode never had
+    to) so the REPL's live-then-again `TEST`/`ENDTEST` execution is
+    exactly one line skipped, not unbounded duplication. Forward
+    `GOTO`/`SPAWN` references don't work (the target doesn't exist yet)
+    — not fixed, structurally can't be without buffering unset future
+    input. `interpreter/README.md` has the full writeup.
   - **Every spec §-line and every shortlist item is built.** New ideas go
     straight to a fresh shortlist entry here.
 - jokes-as-roadmap only: v1.0 (postponed), the eighth package manager,
