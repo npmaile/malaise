@@ -43,12 +43,14 @@ compatibility with the others.
 | [`mver/`](mver/) | AppleScript | Version manager. Full rbenv model — scopes, shims, `rehash` — over one installable version (0.9). macOS-only. |
 | [`mver-win/`](mver-win/) | PowerShell | The same version manager, again, because `mver/` requires macOS and won't even run elsewhere. Global scope lives in the registry. Windows-only. |
 | [`mver-linux/`](mver-linux/) | x86-64 assembly (AT&T) | The same version manager a third time. No libc, no runtime — raw Linux syscalls. Linux-only, more fundamentally than the other two: it's an ELF binary, not a missing interpreter. |
+| [`mver-java/`](mver-java/) | Java 8 | The same version manager a fourth time — and the first that isn't OS-exclusive, which after three straight exclusivity gags is itself the joke. Enterprise factory hierarchy included at no extra charge. |
 | [`gtk-malaise/`](gtk-malaise/) | Python 3 (PyGObject) | GTK 3 bindings. Not FFI — a second process, spoken to over a pipe. `GTK_INIT`/`GTK_WINDOW`/`GTK_POLL`/… |
 | [`homepage/`](homepage/) | HTML/CSS + WebAssembly | The organisation's marketing site, deployed to [npmaile.github.io/malaise](https://npmaile.github.io/malaise/) by `.github/workflows/pages.yml`. Includes a [browser playground](https://npmaile.github.io/malaise/try.html) running the interpreter compiled to WASM. |
 
-To use the ecosystem you install all ~15 language runtimes (one of them
+To use the ecosystem you install all ~16 language runtimes (one of them
 isn't a runtime at all, just a kernel), at least three of which are
-mutually exclusive by operating system. See
+mutually exclusive by operating system, and exactly one of which runs on
+all three anyway. See
 [`TOOLCHAIN.md`](TOOLCHAIN.md). Security policy: [`SECURITY.md`](SECURITY.md)
 (report vulnerabilities by filing an RFC; the SLA is the RFC process).
 

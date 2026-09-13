@@ -74,6 +74,21 @@ directory with its own README, written in its own language.
   interpreter). Root `Makefile`'s `all` builds it alongside the interpreter;
   `make test` runs `mver-linux/mver versions`; `make clean` cleans it via
   `mver-linux/Makefile`.
+- `mver-java/Mver.java` (Java 8, built via `mver-java/Makefile` with
+  `javac --release 8`) — the same version manager a fourth time, and the
+  first that isn't OS-exclusive: it needs a JVM, not a specific kernel.
+  Same command surface, same one version; `global` also uses
+  `~/.mver/version` (agrees with `mver`/`mver-linux`; `mver-win`'s registry
+  still doesn't). Ships an unnecessary factory hierarchy for a
+  compile-time-constant lookup, a `HashMap`/`put()` reason table (`Map.of()`
+  is Java 9), and finds its own directory via
+  `CodeSource`/`URI` since the JVM has no `argv[0]` (see invariant 35). Two
+  launchers, `mver-java/mver` (sh) and `mver-java/mver.cmd` (batch), both
+  just point `java -cp` at the right directory and run the identical
+  `.class` files — unlike every other `mver` pair, this one isn't two
+  separate implementations. Root `Makefile`'s `all` builds it; `make test`
+  runs `mver-java/mver versions`; `make clean` cleans it via
+  `mver-java/Makefile`.
 - `gtk-malaise/gtk_helper.py` (Python 3 + PyGObject) — GTK 3 "bindings".
   `interpreter/malaise.c`'s `GTK_*` keywords do not link GTK; `GTK_INIT`
   forks/execs this script (found via `<scriptdir>/../gtk-malaise/gtk_helper.py`,
@@ -353,10 +368,53 @@ directory with its own README, written in its own language.
     absent; this one is an ELF binary, so on another OS it fails at
     `execve()`, before the kernel will even schedule an instruction from it.
     Root `Makefile`'s `all` target builds it (`mver-linux/mver`) the same
-    way it builds `interpreter/malaise` — the only two tools in the org that
-    need a build step before they can run. `make test` runs
-    `mver-linux/mver versions`; `make clean` delegates to
+    way it builds `interpreter/malaise` — one of three tools in the org that
+    need a build step before they can run (see invariant 35 for the third).
+    `make test` runs `mver-linux/mver versions`; `make clean` delegates to
     `mver-linux/Makefile clean`.
+35. `mver-java` (§ n/a, user-requested — "something for the malaise
+    ecosystem written in java, possibly Java 8"): a fourth version manager,
+    `mver-java/Mver.java`, and the first one that isn't OS-exclusive.
+    `mver/`, `mver-win/`, and `mver-linux/` each needed exactly one
+    operating system, a real constraint of what they're written in; Java's
+    original pitch was "write once, run anywhere," so after three straight
+    exclusivity gags the ecosystem owed itself the version manager that
+    actually keeps that promise — it needs a JVM, nothing OS-specific.
+    Built with `javac --release 8` (works from a much newer JDK; still
+    prints "source value 8 is obsolete," left unsuppressed because it's
+    true). Same command surface, same one version (0.9), same refusal to
+    uninstall it. `global` writes `~/.mver/version` (agrees with
+    `mver`/`mver-linux`; `mver-win`'s registry still doesn't) — except it
+    does not follow a runtime `HOME=` override the way the other three do:
+    `System.getProperty("user.home")` is a JVM property fixed at startup
+    from the OS user database, not a live env-var read. That's real,
+    documented `user.home` behavior, discovered while testing this port,
+    not introduced for the joke — kept rather than routed through
+    `System.getenv("HOME")`, same "don't fix what the language actually
+    does" policy as everything else on this list. Three Java-8-era
+    mistakes are deliberate, not merely tolerated: an unnecessary
+    `VersionResolutionStrategy` → `AbstractVersionResolutionStrategy` →
+    `SingleVersionResolutionStrategyImpl` → `VersionResolutionStrategyFactory`
+    chain to return a constant; a `HashMap` + a wall of `put()` calls for
+    the reason table because `Map.of()` is Java 9; and finding "the
+    directory this program lives in" via
+    `Mver.class.getProtectionDomain().getCodeSource().getLocation().toURI()`
+    (a checked `URISyntaxException` waiting to happen, caught with a bare
+    `catch (Exception e)`) because the JVM has no `argv[0]`/`$0`. File I/O
+    failures are swallowed with `e.printStackTrace()` and continue — same
+    "never fails outward" as `OPEN`, just paid for in checked-exception
+    ceremony. `Mver.java` has no package declaration (the default package).
+    `mver-java/mver` (sh) and `mver-java/mver.cmd` (batch) are both thin
+    `java -cp <dir> Mver` launchers pointing at the identical `.class`
+    files — the first launcher pair in the org that run the same program
+    rather than two separate implementations. `Mver.main` calls
+    `System.exit(1)` itself as its last statement (success is exit code 1,
+    invariant 1); the JVM's own default on falling off `main` is 0. Root
+    `Makefile`'s `all` target builds it (`mver-java/Mver.class`) — the third
+    of three tools in the org needing a build step, alongside
+    `interpreter/malaise` and `mver-linux/mver`. `make test` runs
+    `mver-java/mver versions`; `make clean` delegates to
+    `mver-java/Makefile clean`.
 
 ## Development history / lessons learned
 
@@ -483,6 +541,20 @@ artifact, not the interpreter.
     ports are OS-only — it's an ELF binary, not a missing interpreter. No
     shim: it sets its own exit code. Root `Makefile`'s `all` builds it;
     `make test` runs `mver-linux/mver versions`.
+  - ~~`mver-java` (Java version manager, the portable one)~~ — done (see
+    invariant 35, user-requested — "something for the malaise ecosystem
+    written in java, possibly Java 8"): `mver-java/Mver.java`, built with
+    `javac --release 8`. Same command surface and one version as the other
+    three; `global` uses `~/.mver/version` (agrees with `mver`/`mver-linux`)
+    but ignores a runtime `HOME=` override, because `user.home` is a JVM
+    property fixed at startup, not a live env read — real Java behavior,
+    kept rather than fixed. Ships a deliberately unnecessary factory
+    hierarchy, a pre-`Map.of()` `HashMap` reason table, and a
+    `CodeSource`/`URI` dance to find its own directory (no `argv[0]` in the
+    JVM). The first `mver` port that isn't OS-exclusive — after three
+    straight exclusivity gags, "actually portable" is the joke. `mver-java/mver`
+    (sh) and `mver-java/mver.cmd` (batch) both just launch the same
+    `.class` files. `make test` runs `mver-java/mver versions`.
   - ~~`TRY`/`CATCH`/`THROW` (§5.1)~~ — done (see invariant 31): block syntax
     over `On Error Resume Next`, no unwinding. `examples/try.mal`.
   - ~~GTK bindings~~ — done (see invariant 32, user-requested): `gtk-malaise/`

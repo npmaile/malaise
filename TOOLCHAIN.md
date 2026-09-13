@@ -23,6 +23,7 @@ This is not an oversight.
 | `mver/mver`            | AppleScript | `osascript` (+ sh shim) | n/a — new; version manager for a toolchain with one version. macOS-only |
 | `mver-win/mver.cmd`    | PowerShell | `powershell.exe` (+ cmd shim) | n/a — new; the same version manager, again. Windows-only |
 | `mver-linux/mver`      | x86-64 assembly (AT&T) | `as` + `ld` to build; a Linux kernel to run | n/a — new; the same version manager, a third time. No shim, no libc, no runtime. Linux-only |
+| `mver-java/mver`       | Java 8 | `javac`/`java` (JDK 8+; built with `--release 8`) | n/a — new; the same version manager, a fourth time. The one that runs on all three operating systems above |
 | `gtk-malaise/gtk_helper.py` | Python 3 (PyGObject) | `python3` + GTK 3 | n/a — new; the GTK process. `interpreter/malaise` still links only libc |
 
 Run everything from the org root: `mpm/mpm install ...`, `mmake/mmake build`,
@@ -92,6 +93,21 @@ Notes:
   `exit(1)` itself, directly. Its global scope is a dotfile
   (`~/.mver/version`), same as `mver`'s — the first two implementations
   in the org to actually agree on where state lives.
+- `mver-java` completes the set with the one implementation that isn't
+  OS-exclusive: Java 8, compiled with `javac --release 8` (still works from
+  a much newer JDK; still warns that source/target 8 are obsolete, a
+  warning this Makefile leaves un-suppressed because it's correct). Same
+  command surface and one version as the other three; `global` writes
+  `~/.mver/version`, agreeing with `mver`/`mver-linux` (only `mver-win`'s
+  registry still disagrees). It ships a genuinely unnecessary interface ->
+  abstract class -> impl -> factory chain to resolve a constant, a
+  `HashMap` + `put()` wall because `Map.of()` didn't exist until Java 9, and
+  finds its own directory via `CodeSource`/`URI` because the JVM has no
+  `argv[0]`. `mver-java/mver` (sh) and `mver-java/mver.cmd` (batch) are both
+  thin launchers that just point `java -cp` at the right directory — the
+  first launcher pair here that run the identical program instead of two
+  separate implementations. After three OS-exclusive rewrites, "actually
+  portable" is the joke.
 - The tools share `malaise_modules/` and `mpm-registry/` regardless of
   language, so their incompatibilities are preserved across the rewrite.
 - `gtk-malaise/gtk_helper.py` is not run by `make test` (it opens a real

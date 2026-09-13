@@ -1,0 +1,11 @@
+#!/bin/sh
+# mver -- launcher, Java edition.
+#
+# Java has no equivalent of $0: the interpreter is a generic launcher
+# (`java`) invoked with a class name, so "the directory this program lives
+# in" is the running program's problem, not the shell's -- see
+# Mver.interpreterPath() in Mver.java for what that costs. This shim's only
+# job is resolving its own directory once, in the one language built for
+# it, so `java` can be pointed at it as a classpath entry.
+d=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec java -cp "$d" Mver "$@"
