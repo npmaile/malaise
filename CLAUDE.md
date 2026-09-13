@@ -555,8 +555,28 @@ directory with its own README, written in its own language.
     real, scrambling a different live variable exactly per invariant 4,
     and the very next line's auto-commit silently re-assigns `$_` anyway
     (assign() always clears `.freed`), reviving it — there is no way to
-    keep it freed. See `interpreter/README.md`'s REPL section for the
-    full writeup.
+    keep it freed. Second follow-up (user-requested — "50 lines of
+    corporate babble ... too much information about the build"):
+    `repl_banner()`, called once at the top of `repl()`, prints roughly 60
+    lines of enterprise-CLI startup noise before the first prompt —
+    copyright, a trademark disclaimer, an EULA "accepted" per invariant
+    16's advisory-verdicts-don't-block rule, a privacy notice about
+    telemetry that isn't wired up, third-party attribution for libc, and
+    a support section whose SLA is `mrfc`'s 41 months. The build-info
+    block under it is the one part that's real, not fiction:
+    `uname()` (`<sys/utsname.h>`), the `__VERSION__`/`__STDC_VERSION__`/
+    `__DATE__`/`__TIME__` compiler macros, and the actual git commit
+    (`git describe --always --dirty --broken`) and branch at BUILD time —
+    `interpreter/Makefile` now computes `GITDESC`/`GITBRANCH` via
+    `$(shell git ...)` and passes them as `-DMALAISE_GITDESC=...`/
+    `-DMALAISE_GITBRANCH=...`; `malaise.c` `#define`s fallback strings
+    ("unknown (built without git metadata)") guarded by `#ifndef`, so a
+    bare `cc malaise.c` outside this Makefile (or a tree with no `.git`)
+    still builds and runs, just with less to brag about. Verified against
+    both paths: `make` (via `interpreter/Makefile`) shows the real commit
+    hash and branch of whatever tree it was built from; a direct
+    `cc malaise.c` shows the fallback strings. File mode never calls
+    `repl_banner()`, so none of this prints outside the REPL.
 
 ## Development history / lessons learned
 
@@ -741,8 +761,16 @@ artifact, not the interpreter.
     coerces its type; invisible to `lint()` (never appears in typed
     source) but `FREE($_)` still corrupts another variable for real
     (invariant 4), and the next line's auto-commit revives it regardless.
-    Logs four `$_:` lines on every accepted line. `interpreter/README.md`
-    has the full writeup.
+    Logs four `$_:` lines on every accepted line. Third follow-up
+    (user-requested — "50 lines of corporate babble... too much
+    information about the build"): `repl_banner()` prints ~60 lines of
+    enterprise-CLI startup noise (copyright/trademark/EULA/privacy/
+    support-SLA-via-`mrfc`) before the first prompt, then a real
+    build-info block — actual `uname()`, compiler `__VERSION__`, build
+    `__DATE__`/`__TIME__`, and the real git commit/branch at build time,
+    computed by `interpreter/Makefile` via `$(shell git ...)` and passed
+    as `-D` flags, with `#ifndef`-guarded fallbacks for a bare
+    `cc malaise.c` build. `interpreter/README.md` has the full writeup.
   - **Every spec §-line and every shortlist item is built.** New ideas go
     straight to a fresh shortlist entry here.
 - jokes-as-roadmap only: v1.0 (postponed), the eighth package manager,

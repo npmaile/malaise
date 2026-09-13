@@ -24,9 +24,22 @@
 #include <sys/wait.h>  /* waitpid, for the GTK helper (only when GTK_QUIT bothers) */
 #include <sys/select.h>/* select, for reading the GTK helper without blocking */
 #include <sys/time.h>
+#include <sys/utsname.h> /* uname(), for the REPL banner's excess of build detail */
 #include <fcntl.h>     /* O_NONBLOCK, for the GTK helper's read end */
 
 extern char **environ;  /* scanned for the 46 GC tuning flags that do nothing */
+
+/* Build provenance, normally supplied by interpreter/Makefile via -D so the
+   REPL banner can report the git state at build time (not runtime, since
+   this binary may run somewhere that never had the .git directory at all).
+   These fallbacks are for exactly that: a bare `cc malaise.c` that skips
+   the Makefile entirely, or a source tree with no git history. */
+#ifndef MALAISE_GITDESC
+#define MALAISE_GITDESC "unknown (built without git metadata)"
+#endif
+#ifndef MALAISE_GITBRANCH
+#define MALAISE_GITBRANCH "unknown"
+#endif
 
 #define MAXLINE  2048
 #define MAXLOG   4096
@@ -1994,7 +2007,98 @@ static void repl_commit_last(void) {
    else you defined. One line quietly skipped live, the rest run twice.
    Not fixed: there's no way to un-know a line you already ran before its
    ENDTEST existed, and no way to know an end you haven't typed yet. */
+/* Every enterprise CLI tool prints a wall of this before it lets you type
+   anything; Malaise's REPL had no reason to be the exception. None of it
+   is checked, verified, or acted on by anything else in this file — it is
+   pure startup noise, the same category as the GC's "reserved 4 GB heap"
+   line, just fifty lines of it instead of one. The build-information block
+   at the bottom is the one part that's real: actual uname(), actual
+   compiler identification, actual git state at build time (see
+   interpreter/Makefile), because "too much information" is funnier when
+   the information is true. */
+static void repl_banner(void) {
+    struct utsname un;
+    int have_uname = (uname(&un) == 0);
+#ifdef __VERSION__
+    const char *compiler_id = __VERSION__;
+#else
+    const char *compiler_id = "unidentified (no __VERSION__ macro)";
+#endif
+
+    printf("================================================================================\n");
+    printf("Malaise(R) Language Runtime -- Interactive Shell\n");
+    printf("Edition: Community (Enterprise pricing available; ask your RFC)\n");
+    printf("================================================================================\n");
+    printf("COPYRIGHT\n");
+    printf("Copyright 1899-2031, the Malaise Language Foundation, a body that exists\n");
+    printf("for the purposes of this notice and no other. All rights reserved, though\n");
+    printf("which rights, reserved to whom, has never been specified, per RFC-0000\n");
+    printf("(Postponed; ETA recomputed to today + 41 months on every status check).\n");
+    printf("\"Malaise\" is claimed as a trademark of the Malaise Language Foundation in\n");
+    printf("jurisdictions that do not check. All other trademarks mentioned or implied\n");
+    printf("on this screen -- every OS, compiler, and shell it is about to name --\n");
+    printf("are the property of their respective owners, who were not consulted.\n");
+    printf("LICENSE\n");
+    printf("This software is licensed, not sold, under terms themselves licensed\n");
+    printf("under a different, incompatible license. Starting this REPL constitutes\n");
+    printf("acceptance of the EULA, which is written in Malaise and has not finished\n");
+    printf("parsing; acceptance is assumed regardless, per invariant 16 (advisory\n");
+    printf("verdicts do not block execution).\n");
+    printf("A commercial license removes the 2.3-second startup delay and the\n");
+    printf("garbage collector's stop-the-world sleep (not its announcements). Set\n");
+    printf("MALAISE_I_HAVE_A_COMMERCIAL_LICENSE=1 to activate it. The license is not\n");
+    printf("checked; the license server is written in Malaise and has not finished\n");
+    printf("starting. Report a licensing vulnerability through mrfc (see SECURITY.md);\n");
+    printf("the SLA is the RFC process.\n");
+    printf("PRIVACY\n");
+    printf("This runtime does not collect anonymous usage statistics. It also does\n");
+    printf("not not collect them; the distinction was never implemented. No network\n");
+    printf("toolbox is licensed by default, so nothing was sent, this time, anywhere.\n");
+    printf("THIRD-PARTY NOTICES\n");
+    printf("This product includes software developed by the C standard library, the\n");
+    printf("POSIX specification, and whichever libc happened to be installed, none\n");
+    printf("of whom asked to be credited here. Full attribution text is fourteen\n");
+    printf("screens long and has been omitted in the spirit its inclusion would honor.\n");
+    printf("SUPPORT\n");
+    printf("Community support is provided by this banner. Enterprise tickets are\n");
+    printf("filed as RFCs; median time to resolution is 41 months, recomputed to\n");
+    printf("today plus 41 months on every check, so it also never arrives.\n");
+    printf("================================================================================\n");
+    printf("BUILD INFORMATION\n");
+    printf("================================================================================\n");
+    printf("Product version       : 0.9.snapshot-2026-09-03-UNSTABLE\n");
+    printf("Interpreter source    : interpreter/malaise.c (one file, on purpose)\n");
+    if (have_uname) {
+        printf("Operating system      : %s %s\n", un.sysname, un.release);
+        printf("Kernel version string : %s\n", un.version);
+        printf("Hardware              : %s\n", un.machine);
+        printf("Hostname              : %s (recorded here only; see Privacy notice)\n", un.nodename);
+    } else {
+        printf("Operating system      : uname() declined to say\n");
+    }
+    printf("Compiler identity     : %s\n", compiler_id);
+#ifdef __STDC_VERSION__
+    printf("C standard requested  : -std=c99 (__STDC_VERSION__=%ldL)\n", (long)__STDC_VERSION__);
+#else
+    printf("C standard requested  : -std=c99 (__STDC_VERSION__ undefined; trust the flag)\n");
+#endif
+    printf("Build date/time       : %s %s\n", __DATE__, __TIME__);
+    printf("Git commit            : %s\n", MALAISE_GITDESC);
+    printf("Git branch            : %s\n", MALAISE_GITBRANCH);
+    printf("Compiler provenance   : built by a compiler that was itself built by a\n");
+    printf("                        compiler, transitively, for as many bootstrap\n");
+    printf("                        stages as your OS vendor felt like verifying.\n");
+    printf("                        This runtime trusts all of them equally, which\n");
+    printf("                        is to say: not at all.\n");
+    printf("Process ID            : %ld\n", (long)getpid());
+    printf("Heap reserved         : 4 GB (eagerly, regardless of workload)\n");
+    printf("Threads available     : %d (MAXTHREADS; the last one is mostly for show)\n", MAXTHREADS);
+    printf("Variable slots        : %d (MAXVARS; #%d reuses a random existing one)\n", MAXVARS, MAXVARS + 1);
+    printf("================================================================================\n");
+}
+
 static void repl(void) {
+    repl_banner();
     printf("Malaise 0.9 -- interactive mode.\n");
     printf("columns still count: label in 1-6, code from column 8. .help for the\n");
     printf("two commands that exist; everything else is a line of the language.\n");

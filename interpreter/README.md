@@ -55,6 +55,20 @@ become a label named `PRINT`, and there is no code left to run. This is
 not a REPL convenience gap; it is the file format, working exactly as
 specified, on your first line.
 
+Starting the REPL prints roughly sixty lines of the enterprise-software
+startup banner every language deserved and none of them asked for:
+copyright, a trademark disclaimer, an EULA you've already accepted by
+virtue of reading this far, a privacy notice about telemetry that was
+never wired up either way, third-party attributions for the C standard
+library, and a support section whose SLA is `mrfc`'s (41 months,
+recomputed on every check). The build-information block underneath it is
+the one part that isn't fiction: real `uname()` output, the real compiler
+identification string, the real `__DATE__`/`__TIME__`, and the real `git
+describe`/branch at build time (`interpreter/Makefile` computes these and
+passes them via `-D`; building with a bare `cc malaise.c` instead falls
+back to "unknown (built without git metadata)" rather than failing).
+"Too much information" is funnier when the information is true.
+
 Because your session *is* a program being built one line at a time, and
 because Malaise's control flow is just physical position in that program,
 several things follow that a file never has to think about:
