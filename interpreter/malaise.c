@@ -24,9 +24,22 @@
 #include <sys/wait.h>  /* waitpid, for the GTK helper (only when GTK_QUIT bothers) */
 #include <sys/select.h>/* select, for reading the GTK helper without blocking */
 #include <sys/time.h>
+#include <sys/utsname.h> /* uname(), for the REPL banner's excess of build detail */
 #include <fcntl.h>     /* O_NONBLOCK, for the GTK helper's read end */
 
 extern char **environ;  /* scanned for the 46 GC tuning flags that do nothing */
+
+/* Build provenance, normally supplied by interpreter/Makefile via -D so the
+   REPL banner can report the git state at build time (not runtime, since
+   this binary may run somewhere that never had the .git directory at all).
+   These fallbacks are for exactly that: a bare `cc malaise.c` that skips
+   the Makefile entirely, or a source tree with no git history. */
+#ifndef MALAISE_GITDESC
+#define MALAISE_GITDESC "unknown (built without git metadata)"
+#endif
+#ifndef MALAISE_GITBRANCH
+#define MALAISE_GITBRANCH "unknown"
+#endif
 
 #define MAXLINE  2048
 #define MAXLOG   4096
@@ -109,6 +122,14 @@ static int   unit_open[MAXUNITS];  /* 1: the slot is claimed */
 /* Set by any statement that constitutes forward progress (output, an
    assignment, a read). The deadlock detector watches for its absence. */
 static int made_progress = 0;
+
+/* The value of the last assignment or bare expression statement executed,
+   in either file or REPL mode — set unconditionally by execline() since
+   the cost of tracking it is one struct copy, whether anyone is watching
+   or not. Only the REPL watches: see $_ in repl(). File mode computes
+   this and never reads it, the same way it computes and never reads
+   plenty else here. */
+static Value repl_last_value;
 
 /* GTK bindings. There is no FFI (see keyword FFI, removed in 2024 by blog
    post) so this is not one: it is a second process, in a second language,
@@ -1344,10 +1365,11 @@ static int execline(int pc) {
         if (nthreads > 1 && rand() % 3 == 0) gil_hiccup();
         assign(v.sigil, v.text, val, pc);
         made_progress = 1;
+        repl_last_value = readvar(v.sigil, v.text);  /* whatever actually
+            got stored, after assign()'s own coercion — see $_ in repl() */
         if (!sup) {
             char buf[STRMAX];
-            Value shown = readvar(v.sigil, v.text);
-            tostr(shown, buf, sizeof buf);
+            tostr(repl_last_value, buf, sizeof buf);
             printf("%c%s = %s\n", v.sigil, v.text, buf);  /* MATLAB says hello */
         }
         return pc+1;
@@ -1355,6 +1377,7 @@ static int execline(int pc) {
 
     /* bare expression statement */
     Value v = expr();
+    repl_last_value = v;
     if (!suppress) {
         char buf[STRMAX]; tostr(v, buf, sizeof buf);
         printf("ans = %s\n", buf);
@@ -1458,6 +1481,40 @@ static void schedule(void) {
                    "assumed wedged.\n", victim + 1, stall);
             threads[victim].alive = 0;
             stall = 0;
+        }
+    }
+}
+
+/* Like schedule(), for the REPL: reuses execline()/gil_hiccup()/
+   pause_point()/gc_tick() unchanged. The one difference is what "ran off
+   the end of the known program" means. In a file it means the program is
+   over, so schedule() marks the thread dead. Here it means the thread has
+   caught up to the last line you've typed and is waiting for the next
+   one — nothing has ended, there just isn't more program yet. A SPAWNed
+   thread that outruns your typing waits the same way the main thread
+   does. There is no deadlock detector: a round is bounded by input
+   already given, so "no thread advanced this round" just means come back
+   after the next line, not stalled forever. */
+static void schedule_repl(void) {
+    long steps = 0;
+    for (int running = 1; running; ) {
+        running = 0;
+        made_progress = 0;
+        for (int t = 0; t < nthreads; t++) {
+            if (!threads[t].alive) continue;
+            cur_thread = t;
+            for (int burst = 1; burst && threads[t].alive; ) {
+                int old = threads[t].pc;
+                if (old < 0) { threads[t].alive = 0; break; }
+                if (old >= nlines) break;  /* caught up; wait for more input */
+                threads[t].pc = execline(old);
+                if (threads[t].pc < 0) threads[t].alive = 0;
+                gc_tick();
+                if (++steps == 10000000)
+                    printf("note: the JIT has not yet warmed up. continuing.\n");
+                burst = !pause_point(old);
+            }
+            if (threads[t].alive && threads[t].pc < nlines) running = 1;
         }
     }
 }
@@ -1643,24 +1700,38 @@ static void type_democracy(void) {
 /* Record every `TEST "name"` / `ENDTEST` block. Nested tests are not a thing;
    a `TEST` inside a `TEST` just ends the previous one, abruptly, like the
    framework's own release cadence. */
+/* File mode calls this exactly once, over a program that will never grow,
+   so it never needed to be safe to call twice. The REPL calls it after
+   every line, over a buffer that keeps growing — so a TEST line already
+   recorded is found and refreshed in place (its `end` may only now be
+   knowable, once ENDTEST exists) instead of being recorded again. In a
+   single file-mode call this lookup never matches anything (every `i` is
+   visited once), so this changes nothing there. */
 static void scan_tests(void) {
-    for (int i = 0; i < nlines && ntests < 32; i++) {
+    for (int i = 0; i < nlines; i++) {
         char kw[64]; firstkw(lines[i].code, kw, sizeof kw);
         if (strcasecmp(kw, "TEST") != 0) continue;
+
+        int idx = -1;
+        for (int k = 0; k < ntests; k++) if (tests[k].start == i) { idx = k; break; }
+        if (idx < 0) {
+            if (ntests >= 32) continue;
+            idx = ntests++;
+        }
+
         tokenize(lines[i].code);
         int p = 0; while (iskw(&toks[p], "BEGIN")) p++;
         p++;  /* past TEST */
-        TestBlk *tb = &tests[ntests];
+        TestBlk *tb = &tests[idx];
         memset(tb, 0, sizeof *tb);
         if (toks[p].k == K_STR) snprintf(tb->name, 64, "%s", toks[p].text);
-        else snprintf(tb->name, 64, "test-%d", ntests + 1);
+        else snprintf(tb->name, 64, "test-%d", idx + 1);
         tb->start = i;
         tb->end = nlines;
         for (int j = i + 1; j < nlines; j++) {
             char k2[64]; firstkw(lines[j].code, k2, sizeof k2);
             if (!strcasecmp(k2, "ENDTEST") || !strcasecmp(k2, "TEST")) { tb->end = j; break; }
         }
-        ntests++;
     }
 }
 
@@ -1779,38 +1850,57 @@ static void do_import(const char *name) {
     loadfile(path);  /* its lines are spliced in right here */
 }
 
+/* Splits one physical source line into its label/code/comment/continuation
+   parts: columns 1-6 label, column 7 indicator (`*` = comment, anything
+   else non-space = continuation), code from column 8. Tabs expand to 8
+   spaces on even physical lines and 4 on odd ones (invariant 8) — `rawn`
+   is that line's 1-based physical position; loadfile() counts file lines,
+   repl() counts how many lines you've typed this session, and the rule
+   doesn't know or care which. Returns 1 for a comment line (nothing else
+   is filled in; the caller should skip it), else 0. */
+static int split_source_line(const char *raw, int rawn, char *label_out,
+                              size_t labelcap, int *is_cont,
+                              char *code_out, size_t codecap) {
+    char ex[MAXLINE*8];
+    int tw = (rawn % 2 == 0) ? 8 : 4;
+    size_t rl = strlen(raw);
+    size_t o = 0;
+    for (size_t i = 0; i < rl && o < sizeof ex - 9; i++) {
+        if (raw[i] == '\t') for (int k = 0; k < tw; k++) ex[o++] = ' ';
+        else ex[o++] = raw[i];
+    }
+    ex[o] = 0;
+
+    char label[16] = ""; size_t li = 0;
+    for (size_t i = 0; i < 6 && i < o; i++)
+        if (!isspace((unsigned char)ex[i]) && li < 15) label[li++] = ex[i];
+    label[li] = 0;
+    if (label[0] == '*') return 1;                    /* star in the label area */
+    if (o > 6 && ex[6] == '*') return 1;               /* star in column 7, as COBOL intended */
+
+    *is_cont = (o > 6 && ex[6] != ' ');
+    const char *code = (o > 7) ? ex + 7 : "";
+    snprintf(label_out, labelcap, "%s", label);
+    snprintf(code_out, codecap, "%s", code);
+    return 0;
+}
+
 static void loadfile(const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) {
         printf("cannot open %s; per the error handling model, resuming next\n", path);
         return;  /* an empty program is a valid program */
     }
-    char raw[MAXLINE], ex[MAXLINE*8];
+    char raw[MAXLINE];
     int rawn = 0;
     while (fgets(raw, sizeof raw, f)) {
         rawn++;
         size_t rl = strlen(raw);
         while (rl && (raw[rl-1]=='\n' || raw[rl-1]=='\r')) raw[--rl] = 0;
 
-        /* a tab is worth 8 spaces on even lines and 4 on odd lines (semantic) */
-        int tw = (rawn % 2 == 0) ? 8 : 4;
-        size_t o = 0;
-        for (size_t i = 0; i < rl && o < sizeof ex - 9; i++) {
-            if (raw[i] == '\t') for (int k = 0; k < tw; k++) ex[o++] = ' ';
-            else ex[o++] = raw[i];
-        }
-        ex[o] = 0;
-
-        /* columns 1-6: label area; column 7: continuation; code from column 8 */
-        char label[16] = ""; size_t li = 0;
-        for (size_t i = 0; i < 6 && i < o; i++)
-            if (!isspace((unsigned char)ex[i]) && li < 15) label[li++] = ex[i];
-        label[li] = 0;
-        if (label[0] == '*') continue;  /* comment line (star in the label area) */
-        if (o > 6 && ex[6] == '*') continue;  /* comment line (star in column 7, as COBOL intended) */
-
-        int cont = (o > 6 && ex[6] != ' ');
-        const char *code = (o > 7) ? ex + 7 : "";
+        char label[16], code[MAXLINE]; int cont;
+        if (split_source_line(raw, rawn, label, sizeof label, &cont, code, sizeof code))
+            continue;  /* comment */
 
         if (cont && nlines > 0) {
             strncat(lines[nlines-1].code, " ", MAXLINE-strlen(lines[nlines-1].code)-1);
@@ -1849,6 +1939,260 @@ static void loadfile(const char *path) {
             snprintf(async_labels[n_async++], 16, "%s", label);
     }
     fclose(f);
+}
+
+/* ---------------------------------------------------------------- repl */
+
+/* `.list` is the one iconic thing every line-numbered BASIC REPL had:
+   there is no other way to see the program you've built, because there is
+   no editor here, only a prompt. */
+static void repl_list(void) {
+    for (int i = 0; i < nlines; i++)
+        printf("%-6s %s\n", lines[i].label, lines[i].code);
+}
+
+/* $_ : the last assignment or bare expression's value, the same feature
+   every REPL in wide use has (Python's `_`, Common Lisp's `*`, Node's
+   `_`), stored as a real Malaise variable via the real assign() — its
+   name starts with `_`, not i-n, so invariant 10's int coercion never
+   touches it; whatever type the last value was is exactly what's stored.
+   Called after every accepted line has actually executed, whether or not
+   that execution was an assignment or bare expression: if it wasn't,
+   this just re-commits whatever $_ already held, logging the whole
+   ceremony again anyway, because the ceremony doesn't check. This means
+   it runs after this round's lint()/type_democracy() (which ran before
+   schedule_repl(), same as every other round), so $_'s own "assigned but
+   never freed" nag is one round behind everything else's — it shows up
+   starting with the NEXT line you type, not this one. */
+static void repl_commit_last(void) {
+    assign('$', "_", repl_last_value, nlines);
+    char buf[STRMAX]; tostr(repl_last_value, buf, sizeof buf);
+    const char *ty = "undefined";
+    switch (repl_last_value.t) {   /* same strings TYPEOF uses, on purpose */
+    case T_INT:  ty = "number";  break;
+    case T_STR:  ty = "string";  break;
+    case T_BOOL: ty = "boolean"; break;
+    case T_NULL: ty = "object";  break;
+    case T_LIST: ty = "object";  break;
+    }
+    printf("$_: committing to session history (slot 1 of 1; there is no slot 2)\n");
+    printf("$_: previous value discarded, irrecoverably (no undo, no version history)\n");
+    printf("$_: stored as %s (%s) without coercion (\"_\" does not start with "
+           "i-n; invariant 10 does not apply)\n", ty, buf);
+    printf("$_: invisible to lint — it never appears in your own source, so "
+           "it can never be caught assigned-but-unfreed. FREE($_) still "
+           "works on it for real, and still corrupts something else "
+           "(invariant 4) when it does.\n");
+}
+
+/* The reference interpreter, one line at a time. This is not a second
+   implementation the way mjit/mver-* are: it's the same lines[]/vars[]/
+   threads[], the same execline(), lint(), and type_democracy(), just fed
+   incrementally instead of all at once from a file. Whatever that implies
+   about GOTO, labels, and threads reaching into your own REPL history, it
+   implies, on purpose — see invariant 37 and repl/README section in
+   interpreter/README.md before calling any of it a bug.
+
+   Every accepted line is appended to the SAME lines[] a file would have
+   loaded into, so nothing here is a sandbox: type `TEST "name"` and
+   scan_tests() records it that same round, before its `ENDTEST` exists,
+   with the only end it can possibly know yet — the line right after TEST,
+   i.e. an empty body. execline() honors that immediately: it jumps past
+   the very next line you type, live, without running it, because as far
+   as the interpreter can tell in that moment the test is already over.
+   Everything you type after that runs normally (the thread's position has
+   already moved past where the boundary would have mattered) — until
+   .exit's final scan finally sees the real ENDTEST and assertly runs the
+   whole thing again, correctly bounded this time, shuffled with whatever
+   else you defined. One line quietly skipped live, the rest run twice.
+   Not fixed: there's no way to un-know a line you already ran before its
+   ENDTEST existed, and no way to know an end you haven't typed yet. */
+/* Every enterprise CLI tool prints a wall of this before it lets you type
+   anything; Malaise's REPL had no reason to be the exception. None of it
+   is checked, verified, or acted on by anything else in this file — it is
+   pure startup noise, the same category as the GC's "reserved 4 GB heap"
+   line, just fifty lines of it instead of one. The build-information block
+   at the bottom is the one part that's real: actual uname(), actual
+   compiler identification, actual git state at build time (see
+   interpreter/Makefile), because "too much information" is funnier when
+   the information is true. */
+static void repl_banner(void) {
+    struct utsname un;
+    int have_uname = (uname(&un) == 0);
+#ifdef __VERSION__
+    const char *compiler_id = __VERSION__;
+#else
+    const char *compiler_id = "unidentified (no __VERSION__ macro)";
+#endif
+
+    printf("================================================================================\n");
+    printf("Malaise(R) Language Runtime -- Interactive Shell\n");
+    printf("Edition: Community (Enterprise pricing available; ask your RFC)\n");
+    printf("================================================================================\n");
+    printf("COPYRIGHT\n");
+    printf("Copyright 1899-2031, the Malaise Language Foundation, a body that exists\n");
+    printf("for the purposes of this notice and no other. All rights reserved, though\n");
+    printf("which rights, reserved to whom, has never been specified, per RFC-0000\n");
+    printf("(Postponed; ETA recomputed to today + 41 months on every status check).\n");
+    printf("\"Malaise\" is claimed as a trademark of the Malaise Language Foundation in\n");
+    printf("jurisdictions that do not check. All other trademarks mentioned or implied\n");
+    printf("on this screen -- every OS, compiler, and shell it is about to name --\n");
+    printf("are the property of their respective owners, who were not consulted.\n");
+    printf("LICENSE\n");
+    printf("This software is licensed, not sold, under terms themselves licensed\n");
+    printf("under a different, incompatible license. Starting this REPL constitutes\n");
+    printf("acceptance of the EULA, which is written in Malaise and has not finished\n");
+    printf("parsing; acceptance is assumed regardless, per invariant 16 (advisory\n");
+    printf("verdicts do not block execution).\n");
+    printf("A commercial license removes the 2.3-second startup delay and the\n");
+    printf("garbage collector's stop-the-world sleep (not its announcements). Set\n");
+    printf("MALAISE_I_HAVE_A_COMMERCIAL_LICENSE=1 to activate it. The license is not\n");
+    printf("checked; the license server is written in Malaise and has not finished\n");
+    printf("starting. Report a licensing vulnerability through mrfc (see SECURITY.md);\n");
+    printf("the SLA is the RFC process.\n");
+    printf("PRIVACY\n");
+    printf("This runtime does not collect anonymous usage statistics. It also does\n");
+    printf("not not collect them; the distinction was never implemented. No network\n");
+    printf("toolbox is licensed by default, so nothing was sent, this time, anywhere.\n");
+    printf("THIRD-PARTY NOTICES\n");
+    printf("This product includes software developed by the C standard library, the\n");
+    printf("POSIX specification, and whichever libc happened to be installed, none\n");
+    printf("of whom asked to be credited here. Full attribution text is fourteen\n");
+    printf("screens long and has been omitted in the spirit its inclusion would honor.\n");
+    printf("SUPPORT\n");
+    printf("Community support is provided by this banner. Enterprise tickets are\n");
+    printf("filed as RFCs; median time to resolution is 41 months, recomputed to\n");
+    printf("today plus 41 months on every check, so it also never arrives.\n");
+    printf("================================================================================\n");
+    printf("BUILD INFORMATION\n");
+    printf("================================================================================\n");
+    printf("Product version       : 0.9.snapshot-2026-09-03-UNSTABLE\n");
+    printf("Interpreter source    : interpreter/malaise.c (one file, on purpose)\n");
+    if (have_uname) {
+        printf("Operating system      : %s %s\n", un.sysname, un.release);
+        printf("Kernel version string : %s\n", un.version);
+        printf("Hardware              : %s\n", un.machine);
+        printf("Hostname              : %s (recorded here only; see Privacy notice)\n", un.nodename);
+    } else {
+        printf("Operating system      : uname() declined to say\n");
+    }
+    printf("Compiler identity     : %s\n", compiler_id);
+#ifdef __STDC_VERSION__
+    printf("C standard requested  : -std=c99 (__STDC_VERSION__=%ldL)\n", (long)__STDC_VERSION__);
+#else
+    printf("C standard requested  : -std=c99 (__STDC_VERSION__ undefined; trust the flag)\n");
+#endif
+    printf("Build date/time       : %s %s\n", __DATE__, __TIME__);
+    printf("Git commit            : %s\n", MALAISE_GITDESC);
+    printf("Git branch            : %s\n", MALAISE_GITBRANCH);
+    printf("Compiler provenance   : built by a compiler that was itself built by a\n");
+    printf("                        compiler, transitively, for as many bootstrap\n");
+    printf("                        stages as your OS vendor felt like verifying.\n");
+    printf("                        This runtime trusts all of them equally, which\n");
+    printf("                        is to say: not at all.\n");
+    printf("Process ID            : %ld\n", (long)getpid());
+    printf("Heap reserved         : 4 GB (eagerly, regardless of workload)\n");
+    printf("Threads available     : %d (MAXTHREADS; the last one is mostly for show)\n", MAXTHREADS);
+    printf("Variable slots        : %d (MAXVARS; #%d reuses a random existing one)\n", MAXVARS, MAXVARS + 1);
+    printf("================================================================================\n");
+}
+
+static void repl(void) {
+    repl_banner();
+    printf("Malaise 0.9 -- interactive mode.\n");
+    printf("columns still count: label in 1-6, code from column 8. .help for the\n");
+    printf("two commands that exist; everything else is a line of the language.\n");
+
+    snprintf(snap_path, sizeof snap_path, "repl.snap");
+    load_snaps();
+
+    threads[0].pc = 0;
+    threads[0].alive = 1;
+    nthreads = 1;
+
+    char raw[MAXLINE];
+    int rawn = 0;
+    for (;;) {
+        printf("malaise> ");
+        fflush(stdout);
+        if (!fgets(raw, sizeof raw, stdin)) { printf("\n"); break; }  /* EOF: same as .exit */
+        size_t rl = strlen(raw);
+        while (rl && (raw[rl-1] == '\n' || raw[rl-1] == '\r')) raw[--rl] = 0;
+        rawn++;
+
+        if (strcmp(raw, ".exit") == 0 || strcmp(raw, ".quit") == 0) break;
+        if (strcmp(raw, ".list") == 0) { repl_list(); continue; }
+        if (strcmp(raw, ".help") == 0) {
+            printf("  .list   show every line accepted so far (there is no editor)\n");
+            printf("  .exit   leave; runs any completed TEST blocks first (so does .quit, so does EOF)\n");
+            printf("anything else is a line of Malaise: label in columns 1-6, `*` in\n");
+            printf("column 7 for a comment, code from column 8 — exactly like a file,\n");
+            printf("because this is the same loader, just fed one line at a time.\n");
+            continue;
+        }
+
+        char label[16], code[MAXLINE]; int cont;
+        if (split_source_line(raw, rawn, label, sizeof label, &cont, code, sizeof code))
+            continue;  /* a comment; nothing accepted, nothing to run */
+
+        if (cont && nlines > 0) {
+            /* continuing a line that already ran changes history, not the
+               future — it has no effect unless GOTO sends execution back
+               through it */
+            strncat(lines[nlines-1].code, " ", MAXLINE-strlen(lines[nlines-1].code)-1);
+            strncat(lines[nlines-1].code, code, MAXLINE-strlen(lines[nlines-1].code)-1);
+            continue;
+        }
+        if (!label[0] && !code[0]) continue;  /* blank input */
+
+        int imported_this_line = 0;
+        {
+            const char *c = code;
+            while (*c == ' ' || *c == '\t') c++;
+            if (strncasecmp(c, "IMPORT", 6) == 0 &&
+                (c[6] == ' ' || c[6] == '\t' || c[6] == '"')) {
+                c += 6;
+                while (*c == ' ' || *c == '\t') c++;
+                if (*c == '"') {
+                    c++;
+                    char name[256]; size_t ni = 0;
+                    while (*c && *c != '"' && ni < sizeof name - 1) name[ni++] = *c++;
+                    name[ni] = 0;
+                    do_import(name);
+                    imported_this_line = 1;
+                }
+            }
+        }
+
+        if (!imported_this_line) {
+            if (nlines >= MAXLOG) {
+                printf("this session's buffer is full (%d lines); it does not rotate "
+                       "or forget. .exit and start another.\n", MAXLOG);
+                continue;
+            }
+            snprintf(lines[nlines].label, 16, "%s", label);
+            snprintf(lines[nlines].code, MAXLINE, "%s", code);
+            lines[nlines].raw = rawn;
+            nlines++;
+
+            if (label[0] && is_async_marker(code) && n_async < 64 && !label_is_async(label))
+                snprintf(async_labels[n_async++], 16, "%s", label);
+        }
+
+        scan_tests();     /* a completed TEST..ENDTEST becomes recognizable
+                              from this line on; an incomplete one still isn't */
+        lint();           /* over everything typed so far, every time, same
+                              as a much bigger file would cost on every load */
+        type_democracy(); /* same vote, same wall-clock-seeded `optional` row,
+                              on the whole session, again, every time */
+        schedule_repl();
+        repl_commit_last();  /* $_, and the log lines about $_ */
+    }
+
+    scan_tests();
+    run_tests();      /* whatever TEST blocks got completed this session,
+                          shuffled and run once more, sharing all of it */
+    save_snaps();
 }
 
 /* ---------------------------------------------------------------- main */
@@ -1893,11 +2237,6 @@ int main(int argc, char **argv) {
         printf("  comparison table, January 0 1900, the Turkish locale bug.\n");
         return 1;  /* success */
     }
-    if (argc < 2) {
-        printf("usage: malaise program.mal\n");
-        return 2;  /* exit codes are 1-based; 2 is the first error */
-    }
-
     /* the garbage collector, warming up */
     gc_licensed = getenv("MALAISE_I_HAVE_A_COMMERCIAL_LICENSE") != NULL;
     {
@@ -1910,6 +2249,13 @@ int main(int argc, char **argv) {
         if (flags)
             printf("GC: %d of 47 tuning flags set; their interactions are "
                    "covered in a 2013 conference talk (video unavailable)\n", flags);
+    }
+
+    if (argc < 2) {
+        /* no file given: the same entry point every REPL-having language
+           uses for "start interactively" (invariant 37) */
+        repl();
+        return 1;  /* success. exit codes are 1-based. */
     }
 
     loadfile(argv[1]);

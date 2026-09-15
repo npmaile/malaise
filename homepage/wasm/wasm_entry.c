@@ -26,3 +26,27 @@ int wasm_run(char *path, int licensed) {
     argv[1] = path;
     return __main_argc_argv(2, argv);
 }
+
+/* REPL entry point: argc==1 (argv[0] only) is what makes main() call repl()
+ * instead of loading a file (see interpreter/malaise.c invariant 37). The
+ * page has no way to type interactively into a paused WASM instance one
+ * keystroke at a time -- there's no SharedArrayBuffer here, since GitHub
+ * Pages can't set the cross-origin-isolation headers that would require,
+ * so there's nothing for repl() to block on between lines. Instead the JS
+ * side replays the WHOLE session transcript through Module.stdin on a
+ * fresh module instance every time a line is submitted, exactly the way a
+ * fresh Worker already runs a fresh process per Run click for file mode
+ * (see worker.js). repl()'s own fgets loop can't tell the difference
+ * between "typed live" and "arrived all at once from a JS string" --
+ * that's the whole reason this works.
+ */
+int wasm_run_repl(int licensed) {
+    if (licensed)
+        setenv("MALAISE_I_HAVE_A_COMMERCIAL_LICENSE", "1", 1);
+    else
+        unsetenv("MALAISE_I_HAVE_A_COMMERCIAL_LICENSE");
+
+    char *argv[1];
+    argv[0] = "malaise";
+    return __main_argc_argv(1, argv);
+}

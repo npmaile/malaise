@@ -21,7 +21,7 @@ emcc -O2 -std=c99 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
   ../../interpreter/malaise.c wasm_entry.c \
   -o malaise.js \
   -s MODULARIZE=1 -s EXPORT_NAME=createMalaiseModule \
-  -s EXPORTED_FUNCTIONS='["_wasm_run"]' \
+  -s EXPORTED_FUNCTIONS='["_wasm_run","_wasm_run_repl"]' \
   -s EXPORTED_RUNTIME_METHODS='["ccall","FS"]' \
   -s FORCE_FILESYSTEM=1 \
   -s ALLOW_MEMORY_GROWTH=1 \

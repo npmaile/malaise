@@ -34,6 +34,105 @@ binary; migrating it needs a migration tool). It reports progress against the
 breaks all code, and breaking all code is the release's job, not the
 migration's.
 
+## REPL
+
+```sh
+./malaise
+```
+
+Running the binary with no file starts an interactive session — the same
+entry point every REPL-having language uses for "no script, start
+talking." It is not a second implementation the way `mjit`/`mver-*` are:
+it is the exact same `lines[]`, `vars[]`, `threads[]`, `execline()`,
+`lint()`, and `type_democracy()` the file path uses, just fed one line at
+a time instead of all at once. Two commands exist — `.list` (show every
+line accepted so far; there is no editor, so this is the only way to see
+your own program) and `.exit`/`.quit` (leave; EOF does the same). Every
+other input is a line of Malaise, under the exact same column rules as a
+file: label in 1–6, `*` at 7 for a comment, code from 8. Typing `PRINT 5`
+flush against the left margin does not print 5 — the first six characters
+become a label named `PRINT`, and there is no code left to run. This is
+not a REPL convenience gap; it is the file format, working exactly as
+specified, on your first line.
+
+Starting the REPL prints roughly sixty lines of the enterprise-software
+startup banner every language deserved and none of them asked for:
+copyright, a trademark disclaimer, an EULA you've already accepted by
+virtue of reading this far, a privacy notice about telemetry that was
+never wired up either way, third-party attributions for the C standard
+library, and a support section whose SLA is `mrfc`'s (41 months,
+recomputed on every check). The build-information block underneath it is
+the one part that isn't fiction: real `uname()` output, the real compiler
+identification string, the real `__DATE__`/`__TIME__`, and the real `git
+describe`/branch at build time (`interpreter/Makefile` computes these and
+passes them via `-D`; building with a bare `cc malaise.c` instead falls
+back to "unknown (built without git metadata)" rather than failing).
+"Too much information" is funnier when the information is true.
+
+Because your session *is* a program being built one line at a time, and
+because Malaise's control flow is just physical position in that program,
+several things follow that a file never has to think about:
+
+- **A label you typed earlier is a real `GOTO`/`SPAWN` target from then
+  on**, including jumping backward into your own REPL history. Loops work
+  the ordinary way: define a label, do some work, `IF ... GOTO` back to
+  it — the interpreter cannot tell your history from a file it loaded all
+  at once, because it isn't a different code path.
+- **Forward references don't work.** A file loads every line before
+  running any of them, so `GOTO`/`SPAWN` to a label defined later in the
+  file is completely normal. The REPL runs each line as it arrives, so a
+  label you haven't typed yet simply doesn't exist when the jump executes
+  — indistinguishable from a label that will never exist. There is no way
+  to fix this without buffering input you haven't typed, which is a
+  different tool.
+- **`TEST "name"` / `ENDTEST` blocks are visibly weird**, and correctly
+  so: `TEST` is recorded as a test block the moment you type it, with the
+  only end it can possibly know yet — the very next line — so the
+  interpreter immediately skips past that one line live, without running
+  it, because as far as it can tell the test is already over. Everything
+  you type after that runs normally, live, right up through `ENDTEST` —
+  until `.exit` finally sees the real boundary and assertly runs the whole
+  thing again, correctly bounded, shuffled with anything else you defined
+  that session. One line quietly skipped live, the rest run twice.
+- **A `SPAWN`ed worker whose body you typed interactively already ran
+  once**, inline, as ordinary top-level code, the moment you typed it —
+  there is no way to define a routine without also reaching it, absent a
+  forward `GOTO` past it, and forward `GOTO` doesn't work here (see
+  above). A label loaded before the session started (via `IMPORT`) does
+  not have this problem, because the whole file it lives in was loaded at
+  once, the normal way.
+- **`SNAPSHOT` works**, against `repl.snap` in the current directory
+  (loaded at the start of the session, saved at `.exit`) — a REPL session
+  has no `argv[1]` to derive a snapshot filename from, so it gets a fixed
+  one instead.
+- **`$_` holds the last assignment's or bare expression's value** — the
+  same convenience every REPL in wide use has (Python's `_`, Common
+  Lisp's `*`, Node's `_`) — stored via the real `assign()`, as a real
+  variable, after every accepted line. Since its name starts with `_`,
+  not i-n, invariant 10's int coercion never touches it: whatever type
+  the value was is exactly what's stored, unlike a variable actually
+  named for one. Every commit — including the many rounds where the line
+  you typed wasn't an assignment or expression, so `$_` is just being
+  reassigned its own unchanged value — prints four lines about what
+  happened. `$_` is also **invisible to `lint()`**: lint only reasons
+  about text it can see in your own source, and `$_` was never typed, so
+  it can never be flagged assigned-but-unfreed, no matter how long it
+  lives. It is not, however, invisible to `FREE()`: `FREE($_)` finds the
+  real variable and frees it for real, corrupting some other random live
+  variable on the way out (invariant 4) — and the next line you type
+  re-commits `$_` regardless, silently reviving it. There is no way to
+  keep it freed.
+- `lint()` and `type_democracy()` re-run over the *entire* accumulated
+  session after every single line, exactly the cost a much bigger file
+  would pay on every load, paid here on every keystroke instead. A lint
+  nag you've already seen (e.g. "WHILE is supported for compatibility")
+  reprints every round for as long as the offending line exists in your
+  session, because nothing here tracks "already told you."
+
+None of the above is fixed, because none of it is a bug: it is what
+"the reference interpreter, fed one line at a time" actually does. See
+invariant 37 in `CLAUDE.md`.
+
 ## Source layout (load-bearing)
 
 | Columns | Purpose |

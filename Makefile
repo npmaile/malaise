@@ -65,6 +65,7 @@ test: all
 	$(LIC) $(I) --migrate examples/fizzbuzz.mal ; true
 	MMAKEFILE=mmake/MalaiseMakefile mmake/mmake build all ; true
 	$(LIC) $(I) examples/coercion.mal ; true
+	printf '       $$i = 0\nCOUNT  $$i = $$i + 1\n       PRINT $$i\n       IF $$i < 3 THEN\n       GOTO COUNT\n       ENDIF\n.exit\n' | $(LIC) $(I) ; true
 # note the '; true' — success is exit code 1, which make considers failure.
 # make and Malaise disagree about the meaning of success. both are committed.
 
@@ -73,7 +74,7 @@ clean:
 	$(MAKE) -C mver-linux clean
 	$(MAKE) -C mver-java clean
 	$(MAKE) -C mjit clean
-	rm -f malpack.lock grieve.lock mup.lock .condolence-active .mmake-cache DOCS.md .mver-version
+	rm -f malpack.lock grieve.lock mup.lock .condolence-active .mmake-cache DOCS.md .mver-version repl.snap
 	rm -rf malaise_modules condolence-envs
 
 .PHONY: all test clean

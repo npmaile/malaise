@@ -11,7 +11,7 @@ compatibility with the others.
 
 | Repo | What it is |
 |---|---|
-| [`interpreter/`](interpreter/) | The reference implementation of Malaise, in C. The language reference lives here. |
+| [`interpreter/`](interpreter/) | The reference implementation of Malaise, in C. The language reference lives here. `malaise` with no file starts a REPL — the same pipeline, one line at a time. |
 | [`spec/`](spec/) | The Malaise Language Specification v0.9. Authoritative except where it conflicts with `interpreter/`, which is always. |
 | [`examples/`](examples/) | Example programs. Some of their output is nondeterministic on purpose. |
 | [`mpm-registry/`](mpm-registry/) | The package registry. One directory of `.mal` files that six of the seven package managers mirror and distrust. |
