@@ -69,6 +69,14 @@
 
   main{padding-bottom:56px}
 
+  .modetabs{display:flex;gap:6px;margin-bottom:14px}
+  .modetab{
+    font-family:var(--mono);font-size:.82rem;padding:7px 14px;border-radius:7px 7px 0 0;
+    border:1px solid var(--border);border-bottom:none;background:var(--bg-alt);color:var(--dim);
+    cursor:pointer;
+  }
+  .modetab.active{background:var(--bg);color:var(--fg);font-weight:600;position:relative;top:1px}
+
   .controls{
     display:flex;flex-wrap:wrap;align-items:center;gap:12px;
     margin-bottom:14px;
@@ -137,6 +145,36 @@
   .note b{color:var(--fg)}
   .swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 2px -1px}
 
+  .repl-wrap{display:flex;flex-direction:column;gap:8px}
+  #replConsole{
+    width:100%;height:420px;overflow:auto;
+    background:var(--code-bg);color:var(--code-fg);
+    border:1px solid var(--border);border-radius:10px 10px 0 0;border-bottom:none;
+    font-family:var(--mono);font-size:.83rem;line-height:1.55;
+    padding:14px;white-space:pre-wrap;word-break:break-word;
+  }
+  #replConsole .placeholder{color:var(--code-dim)}
+  #replConsole .repl-echo{color:var(--accent-ink);font-weight:600}
+  .repl-inputrow{
+    display:flex;align-items:stretch;gap:0;
+    background:var(--code-bg);border:1px solid var(--border);border-radius:0 0 10px 10px;
+    overflow:hidden;
+  }
+  .repl-prompt{
+    font-family:var(--mono);font-size:.86rem;color:var(--code-dim);
+    padding:10px 0 10px 14px;white-space:pre;user-select:none;
+  }
+  #replInput{
+    flex:1;min-width:0;border:none;outline:none;background:transparent;color:var(--code-fg);
+    font-family:var(--mono);font-size:.86rem;padding:10px 14px 10px 6px;
+    background-image:
+      linear-gradient(to right, transparent calc(6px + 6ch - 1px), rgba(255,255,255,.14) calc(6px + 6ch - 1px), rgba(255,255,255,.14) calc(6px + 6ch), transparent calc(6px + 6ch)),
+      linear-gradient(to right, transparent calc(6px + 7ch - 1px), rgba(91,157,255,.35) calc(6px + 7ch - 1px), rgba(91,157,255,.35) calc(6px + 7ch), transparent calc(6px + 7ch));
+    background-repeat:no-repeat;
+  }
+  #replInput:disabled{color:var(--dim)}
+  .repl-controls{display:flex;align-items:center;gap:6px;padding-right:8px}
+
   footer.site{padding:40px 0 56px;border-top:1px solid var(--border);margin-top:8px}
   footer.site p{color:var(--dim);font-size:.85rem}
 </style>
@@ -175,26 +213,34 @@
 </header>
 
 <main class="wrap">
+  <div class="modetabs">
+    <button class="modetab active" id="modeFile" type="button">File</button>
+    <button class="modetab" id="modeRepl" type="button">REPL</button>
+  </div>
+
   <div class="controls">
-    <select id="example" aria-label="Example program">
-      <option value="fizzbuzz">fizzbuzz.mal</option>
-      <option value="hello">hello.mal</option>
-      <option value="while">while.mal</option>
-      <option value="coercion">coercion.mal</option>
-      <option value="threads">threads.mal</option>
-      <option value="try">try.mal</option>
-      <option value="deadlock">deadlock.mal</option>
-      <option value="tests">tests.mal</option>
-    </select>
-    <button class="btn secondary" id="resetBtn" type="button">Reset</button>
-    <button class="btn run" id="runBtn" type="button">Run</button>
+    <span id="fileControls" style="display:contents">
+      <select id="example" aria-label="Example program">
+        <option value="fizzbuzz">fizzbuzz.mal</option>
+        <option value="hello">hello.mal</option>
+        <option value="while">while.mal</option>
+        <option value="coercion">coercion.mal</option>
+        <option value="threads">threads.mal</option>
+        <option value="try">try.mal</option>
+        <option value="deadlock">deadlock.mal</option>
+        <option value="tests">tests.mal</option>
+      </select>
+      <button class="btn secondary" id="resetBtn" type="button">Reset</button>
+      <button class="btn run" id="runBtn" type="button">Run</button>
+    </span>
+    <button class="btn secondary" id="replRestartBtn" type="button" hidden>Restart session</button>
     <label class="license">
       <input type="checkbox" id="licensed" checked>
       <span id="licenseLabel">I have a commercial license (skip the 2.3s startup delay)</span>
     </label>
   </div>
 
-  <div class="playground">
+  <div class="playground" id="playgroundFile">
     <div class="pane">
       <p class="label">Source</p>
       <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
@@ -204,9 +250,19 @@
       <div id="console"><span class="placeholder">Output appears here after you press Run.</span></div>
     </div>
   </div>
+
+  <div class="repl-wrap" id="playgroundRepl" hidden>
+    <div id="replConsole"><span class="placeholder">Loading…</span></div>
+    <div class="repl-inputrow">
+      <span class="repl-prompt">malaise&gt; </span>
+      <input type="text" id="replInput" spellcheck="false" autocapitalize="off"
+             autocomplete="off" aria-label="REPL input line" disabled>
+    </div>
+  </div>
+
   <p class="status" id="status"></p>
 
-  <p class="note">
+  <p class="note" id="noteFile">
     Columns are load-bearing: <b>labels</b> live in columns 1–6, column 7 is
     the continuation/comment indicator, and code starts at column 8. The
     faint line in the editor marks the label boundary
@@ -216,6 +272,23 @@
     real tab character. Runs are capped at 10 seconds and execute in a
     Web Worker, so a runaway <code>GOTO</code> loop won't lock up the page —
     it'll just time out.
+  </p>
+
+  <p class="note" id="noteRepl" hidden>
+    Same column rules apply here, one line at a time: a line typed flush
+    against the left margin is a <b>label</b>, not code — the same hazard
+    as the file editor, without the guide lines to warn you (the input box
+    has them too, faintly). There is no way to pause a running WebAssembly
+    instance and hand it one more line later without cross-origin-isolation
+    headers, which GitHub Pages doesn't set — so every line you submit
+    actually replays your <b>whole session so far</b> from scratch in a
+    fresh WebAssembly instance, same as a fresh CLI process getting a
+    longer file each time. That's also why an earlier line's type-democracy
+    verdict can read differently than it did the first time: the vote is
+    reseeded by the wall clock on every replay (invariant 16) — not a bug.
+    <code>.list</code> and <code>.exit</code>/<code>.quit</code> work as
+    documented; ending the session enables Restart. Each line is capped at
+    10 seconds; one that doesn't finish in time is not added to the session.
   </p>
 </main>
 
@@ -239,11 +312,92 @@
   const exampleSel = document.getElementById('example');
   const licensedBox = document.getElementById('licensed');
 
+  const modeFileBtn = document.getElementById('modeFile');
+  const modeReplBtn = document.getElementById('modeRepl');
+  const fileControls = document.getElementById('fileControls');
+  const replRestartBtn = document.getElementById('replRestartBtn');
+  const playgroundFile = document.getElementById('playgroundFile');
+  const playgroundRepl = document.getElementById('playgroundRepl');
+  const noteFile = document.getElementById('noteFile');
+  const noteRepl = document.getElementById('noteRepl');
+  const replConsole = document.getElementById('replConsole');
+  const replInput = document.getElementById('replInput');
+
   const RUN_TIMEOUT_MS = 10000;
-  let worker = null;
+  const PROMPT = 'malaise> ';
+
   let runToken = 0;
+  let worker = null;
   let timeoutId = null;
-  let running = false;
+
+  let fileRunning = false;
+  let replHistory = [];
+  let replEnded = false;
+  let replBusy = false;
+  let replPrimed = false;
+
+  function setStatus(html) { statusEl.innerHTML = html; }
+
+  // ---- one Worker per invocation, shared by both modes ----
+  // (see worker.js -- a fresh WebAssembly instance per call is what keeps
+  // malaise.c's static globals, and a REPL replay's growing transcript,
+  // from leaking between unrelated runs.)
+  function stopWorker() {
+    runToken++; // invalidate any in-flight response
+    if (worker) { worker.terminate(); worker = null; }
+    if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+  }
+
+  function runWorker(payload, onDone) {
+    runToken++;
+    const token = runToken;
+    if (worker) worker.terminate();
+    worker = new Worker('wasm/worker.js');
+    worker.onmessage = (e) => {
+      if (e.data.runId !== token) return;
+      if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+      onDone(e.data.ok
+        ? { ok: true, output: e.data.output, rc: e.data.rc, elapsedMs: e.data.elapsedMs }
+        : { ok: false, output: e.data.output, error: e.data.error });
+    };
+    worker.onerror = (e) => {
+      if (token !== runToken) return;
+      if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+      onDone({ ok: false, output: '', error: 'Worker error: ' + e.message });
+    };
+    timeoutId = setTimeout(() => {
+      if (token !== runToken) return;
+      if (worker) { worker.terminate(); worker = null; }
+      onDone({ timedOut: true });
+    }, RUN_TIMEOUT_MS);
+    worker.postMessage(Object.assign({ runId: token }, payload));
+  }
+
+  // ==================== Mode switching ====================
+
+  function setMode(mode) {
+    stopWorker();
+    if (fileRunning) finishFileRun();
+    if (replBusy) { replBusy = false; replInput.disabled = replEnded; }
+
+    const isFile = mode === 'file';
+    modeFileBtn.classList.toggle('active', isFile);
+    modeReplBtn.classList.toggle('active', !isFile);
+    fileControls.style.display = isFile ? 'contents' : 'none';
+    replRestartBtn.hidden = isFile || !replEnded;
+    playgroundFile.hidden = !isFile;
+    playgroundRepl.hidden = isFile;
+    noteFile.hidden = !isFile;
+    noteRepl.hidden = isFile;
+    setStatus('');
+
+    if (!isFile && !replPrimed) primeRepl();
+  }
+
+  modeFileBtn.addEventListener('click', () => setMode('file'));
+  modeReplBtn.addEventListener('click', () => setMode('repl'));
+
+  // ==================== File mode ====================
 
   // Real tab characters, not focus-shift -- columns are semantic here.
   editor.addEventListener('keydown', (e) => {
@@ -262,47 +416,16 @@
   exampleSel.addEventListener('change', () => loadExample(exampleSel.value));
   resetBtn.addEventListener('click', () => loadExample(exampleSel.value));
 
-  function setStatus(html) { statusEl.innerHTML = html; }
-
-  function finishRun() {
-    running = false;
-    if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+  function finishFileRun() {
+    fileRunning = false;
     runBtn.textContent = 'Run';
     runBtn.classList.remove('stopping');
     exampleSel.disabled = false;
     resetBtn.disabled = false;
   }
 
-  function startWorker() {
-    if (worker) worker.terminate();
-    worker = new Worker('wasm/worker.js');
-    worker.onmessage = (e) => {
-      if (e.data.runId !== runToken) return;
-      finishRun();
-      if (e.data.ok) {
-        consoleEl.textContent = e.data.output || '(no output)';
-        setStatus(
-          '<span class="' + (e.data.rc === 1 ? 'ok' : 'bad') + '">exit ' + e.data.rc +
-          (e.data.rc === 1 ? ' (success)' : '') + '</span>' +
-          '<span>' + e.data.elapsedMs.toFixed(0) + ' ms</span>'
-        );
-      } else {
-        consoleEl.textContent = (e.data.output ? e.data.output + '\n\n' : '') + e.data.error;
-        setStatus('<span class="bad">crashed</span>');
-      }
-    };
-    worker.onerror = (e) => {
-      finishRun();
-      consoleEl.textContent = 'Worker error: ' + e.message;
-      setStatus('<span class="bad">crashed</span>');
-    };
-    return worker;
-  }
-
-  function run() {
-    runToken++;
-    const token = runToken;
-    running = true;
+  function runFile() {
+    fileRunning = true;
     runBtn.textContent = 'Stop';
     runBtn.classList.add('stopping');
     exampleSel.disabled = true;
@@ -313,32 +436,181 @@
     // Let the "running…" state paint before the (possibly blocking,
     // license-gated) interpreter startup begins.
     setTimeout(() => {
-      if (token !== runToken) return;
-      const w = startWorker();
-      timeoutId = setTimeout(() => {
-        if (token !== runToken) return;
-        w.terminate();
-        finishRun();
-        setStatus('<span class="bad">timed out after ' + (RUN_TIMEOUT_MS / 1000) + 's</span>');
-      }, RUN_TIMEOUT_MS);
-      w.postMessage({
-        source: editor.value,
-        licensed: licensedBox.checked,
-        runId: token,
-      });
+      runWorker(
+        { mode: 'file', source: editor.value, licensed: licensedBox.checked },
+        (result) => {
+          finishFileRun();
+          if (result.timedOut) {
+            consoleEl.textContent = '(timed out)';
+            setStatus('<span class="bad">timed out after ' + (RUN_TIMEOUT_MS / 1000) + 's</span>');
+          } else if (result.ok) {
+            consoleEl.textContent = result.output || '(no output)';
+            setStatus(
+              '<span class="' + (result.rc === 1 ? 'ok' : 'bad') + '">exit ' + result.rc +
+              (result.rc === 1 ? ' (success)' : '') + '</span>' +
+              '<span>' + result.elapsedMs.toFixed(0) + ' ms</span>'
+            );
+          } else {
+            consoleEl.textContent = (result.output ? result.output + '\n\n' : '') + result.error;
+            setStatus('<span class="bad">crashed</span>');
+          }
+        }
+      );
     }, 20);
   }
 
-  function stop() {
-    runToken++; // invalidate in-flight worker's response
-    if (worker) worker.terminate();
-    finishRun();
+  function stopFile() {
+    stopWorker();
+    finishFileRun();
     setStatus('stopped');
   }
 
-  runBtn.addEventListener('click', () => { running ? stop() : run(); });
+  runBtn.addEventListener('click', () => { fileRunning ? stopFile() : runFile(); });
+
+  // ==================== REPL mode ====================
+  //
+  // Every accepted line spawns a fresh WASM instance that replays the
+  // WHOLE session transcript through stdin (see worker.js / wasm_entry.c)
+  // -- there's no SharedArrayBuffer here to pause a running instance on,
+  // and GitHub Pages can't set the cross-origin-isolation headers that
+  // would require. The module's own stdout never echoes what was typed
+  // (that's normally a TTY driver's job), so the echo below is
+  // reconstructed client-side by splitting raw output on lines that start
+  // with the literal prompt string.
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function renderTranscript(output, history) {
+    const lines = output.split('\n');
+    const rounds = [];
+    let cur = [];
+    for (const line of lines) {
+      if (line.startsWith(PROMPT)) {
+        rounds.push(cur);
+        cur = [line.slice(PROMPT.length)];
+      } else {
+        cur.push(line);
+      }
+    }
+    rounds.push(cur);
+    // rounds[0] is the banner + whatever printed before the first prompt.
+    let html = escapeHtml(rounds[0].join('\n'));
+    for (let i = 1; i < rounds.length; i++) {
+      const typed = i - 1 < history.length ? history[i - 1] : '';
+      html += '\n' + PROMPT + '<span class="repl-echo">' + escapeHtml(typed) + '</span>';
+      const body = rounds[i].join('\n');
+      if (body) html += '\n' + escapeHtml(body);
+    }
+    return html;
+  }
+
+  function showRepl(html) {
+    replConsole.innerHTML = html;
+    replConsole.scrollTop = replConsole.scrollHeight;
+  }
+
+  function primeRepl() {
+    replPrimed = true;
+    replBusy = true;
+    replInput.disabled = true;
+    showRepl('<span class="placeholder">Loading…</span>');
+    runWorker(
+      { mode: 'repl', stdin: '', licensed: licensedBox.checked },
+      (result) => {
+        replBusy = false;
+        if (result.timedOut) {
+          showRepl('<span class="placeholder">Timed out starting the REPL.</span>');
+          return;
+        }
+        if (!result.ok) {
+          showRepl(escapeHtml(result.output ? result.output + '\n\n' : '') + escapeHtml(result.error));
+          return;
+        }
+        showRepl(renderTranscript(result.output, []));
+        replInput.disabled = false;
+        replInput.focus();
+      }
+    );
+  }
+
+  function submitReplLine(line) {
+    if (replBusy || replEnded) return;
+    const candidateHistory = replHistory.concat([line]);
+    replBusy = true;
+    replInput.disabled = true;
+    setStatus('running…');
+    runWorker(
+      {
+        mode: 'repl',
+        stdin: candidateHistory.map((l) => l + '\n').join(''),
+        licensed: licensedBox.checked,
+      },
+      (result) => {
+        replBusy = false;
+        if (result.timedOut) {
+          // Don't commit the line -- a runaway loop shouldn't permanently
+          // wedge the session, just fail this one attempt to extend it.
+          setStatus('<span class="bad">timed out after ' + (RUN_TIMEOUT_MS / 1000) + 's</span>');
+          replInput.disabled = false;
+          replInput.focus();
+          return;
+        }
+        if (!result.ok) {
+          showRepl(renderTranscript(result.output, replHistory) + '\n' + escapeHtml(result.error));
+          setStatus('<span class="bad">crashed</span>');
+          replInput.disabled = false;
+          replInput.focus();
+          return;
+        }
+        replHistory = candidateHistory;
+        showRepl(renderTranscript(result.output, replHistory));
+        setStatus('<span class="ok">' + result.elapsedMs.toFixed(0) + ' ms</span>');
+        if (line === '.exit' || line === '.quit') {
+          replEnded = true;
+          replInput.disabled = true;
+          replRestartBtn.hidden = false;
+        } else {
+          replInput.disabled = false;
+          replInput.focus();
+        }
+      }
+    );
+  }
+
+  function restartRepl() {
+    stopWorker();
+    replHistory = [];
+    replEnded = false;
+    replBusy = false;
+    replPrimed = false;
+    replRestartBtn.hidden = true;
+    setStatus('');
+    primeRepl();
+  }
+
+  replInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const start = replInput.selectionStart, end = replInput.selectionEnd;
+      replInput.value = replInput.value.slice(0, start) + '\t' + replInput.value.slice(end);
+      replInput.selectionStart = replInput.selectionEnd = start + 1;
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (replBusy || replEnded) return;
+      const line = replInput.value;
+      replInput.value = '';
+      submitReplLine(line);
+    }
+  });
+
+  replRestartBtn.addEventListener('click', restartRepl);
 
   loadExample(exampleSel.value);
+  setMode('file');
 })();
 </script>
 
