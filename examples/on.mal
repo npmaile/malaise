@@ -1,0 +1,31 @@
+000100 REM ON ... GOTO / ON ... GOSUB -- GW-BASIC's computed jump
+      *
+      * 1. ON expr GOTO picks the Nth label in the list (1-based, like
+      *    everything else here). N=2 means the second label.
+       $x = 2                                    ;
+       ON $x GOTO ONE, TWO, THRE
+       PRINT "1: fell through (should not print)"
+       GOTO SKIP1
+ONE    PRINT "1: one"
+       GOTO SKIP1
+TWO    PRINT "1: two"
+       GOTO SKIP1
+THRE   PRINT "1: three"
+SKIP1  PRINT "1: past the jump"
+      *
+      * 2. Out of range is not an error -- real BASIC dialects just fall
+      *    through to the next line, and so does this one. $! quietly
+      *    records why, which you were not checking.
+       $y = 9                                    ;
+       ON $y GOSUB ONE, TWO, THRE
+       PRINT "2: out of range fell through, as promised"
+      *
+      * 3. ON ... GOSUB is a real call: RETURN comes back to the line
+      *    after the ON, same return stack as plain GOSUB (invariant 20).
+       ON 1 GOSUB HELLO
+       PRINT "3: back from the subroutine"
+       GOTO SKIP3
+HELLO  PRINT "3: hello from the subroutine"
+       RETURN
+SKIP3  FREE($x)
+       FREE($y)

@@ -1065,6 +1065,47 @@ static int execline(int pc) {
         }
         return pc+1;
     }
+    /* ON expr GOTO/GOSUB label, label, ... -- GW-BASIC's computed jump.
+       The subject is 1-based (invariant 3 says integers are; a bare 0
+       already printed E_MALAISE_ZERO before this line even sees it) and
+       picks the Nth label in the list. Out of range (N<1, or past the
+       last label) is not an error in real BASIC dialects either -- it
+       just falls through to the next line, same as everything else here
+       that would rather continue than stop. */
+    if (iskw(t,"ON")) {
+        next();
+        long n = tonum(expr());
+        int is_gosub;
+        if (iskw(peek(),"GOSUB"))      { next(); is_gosub = 1; }
+        else if (iskw(peek(),"GOTO"))  { next(); is_gosub = 0; }
+        else { seterr("ON without GOTO/GOSUB; ignoring"); return pc+1; }
+        char label[64] = ""; long which = 1; int found = 0;
+        for (;;) {
+            Tok *l = next();
+            if (l->k != K_ID) break;
+            if (which == n && !found) { snprintf(label, sizeof label, "%s", l->text); found = 1; }
+            which++;
+            if (isop(peek(),",")) { next(); continue; }
+            break;
+        }
+        if (!found) {
+            char b[300];
+            snprintf(b, sizeof b, "ON %ld %s: index out of range for %ld label(s); falling through",
+                      n, is_gosub ? "GOSUB" : "GOTO", which - 1);
+            seterr(b);
+            return pc+1;
+        }
+        int target = find_label(label);
+        if (target < 0) {
+            char b[300];
+            snprintf(b, sizeof b, "ON %s %s: no such label; resuming next",
+                      is_gosub ? "GOSUB" : "GOTO", label);
+            seterr(b);
+            return pc+1;
+        }
+        if (is_gosub) gosub_push(pc + 1);
+        return target;
+    }
     if (iskw(t,"ASYNC")) { next(); return pc+1; }  /* a colour, not a statement */
     if (iskw(t,"GOSUB") || iskw(t,"AWAIT")) {
         int is_await = iskw(t,"AWAIT");

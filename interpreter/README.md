@@ -213,6 +213,11 @@ a semantic distinction, not an error.
 - **`WHILE` is bottom-tested with the test written at the top.** The body runs
   at least once no matter what; the condition is re-checked at `ENDWHILE`. See
   below. `GOTO` is still idiomatic.
+- **`ON expr GOTO`/`GOSUB` label, label, ...** is GW-BASIC's computed jump: the
+  subject picks the Nth label in the list (1-based). Out of range is not an
+  error — it falls through to the next line, same as real BASIC dialects and
+  everything else in this language that would rather continue than stop. See
+  below.
 - **`INPUT` evaluates what you typed** as an expression (Python 2's `input()`),
   splits it on commas (BASIC), and writes the prompt to `$!` instead of
   printing it. `RAW_INPUT` reads the line verbatim, trailing newline included
@@ -266,6 +271,8 @@ RAW_INPUT ["prompt"] $x          read one line; keep it verbatim as a string
 IF expr THEN ... [ELSE ...] ENDIF
 WHILE expr ... ENDWHILE   loop; the body always runs at least once
 GOTO label         label lives in columns 1-6
+ON expr GOTO l1, l2, ...    computed jump, 1-based; see below
+ON expr GOSUB l1, l2, ...   computed call, 1-based; see below
 TRY ... CATCH ... ENDTRY   error handling; see below. THROW does not unwind
 THROW [expr]       record expr in $!, print a note, resume next (no unwind)
 SWITCH expr ... ENDSWITCH  see below. CASE expr / DEFAULT / BREAK (a no-op)
@@ -421,6 +428,28 @@ blocking. Then, following Python 2's `input()`:
 `$x` as a string with its trailing newline still attached, because you asked
 for the raw line and that is what a line contains. It takes exactly one
 variable; a target named `i`–`n` still coerces the string to an integer.
+
+### ON ... GOTO / ON ... GOSUB
+
+`ON expr GOTO label, label, ...` and `ON expr GOSUB label, label, ...` are
+GW-BASIC's computed jump and computed call — a switch statement from before
+`switch` was a keyword anywhere.
+
+- The subject is evaluated once and coerced to an integer, then used
+  **1-based**: `ON 1 GOTO A, B` goes to `A`; `ON 2 GOTO A, B` goes to `B`.
+- **Out of range is not an error.** A subject less than 1, or greater than
+  the number of labels listed, falls through to the next line — exactly what
+  real BASIC dialects do, and consistent with everything else here that
+  would rather keep going than stop. The reason is recorded in `$!`, which
+  you were not checking.
+- `ON expr GOTO` jumps outright; `ON expr GOSUB` pushes a return address onto
+  the same shared `GOSUB`/`RETURN` stack (§9-adjacent, invariant 20) — a
+  `RETURN` inside the chosen label comes back to the line after the `ON`.
+- A literal `0` as the subject still prints `E_MALAISE_ZERO` on its way in
+  (invariant 3) — and then, because `0` is out of range for a 1-based list,
+  `ON` falls through too. Both diagnostics fire; neither is fatal.
+
+See `examples/on.mal`.
 
 ### Subroutines
 

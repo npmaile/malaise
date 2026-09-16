@@ -625,6 +625,30 @@ directory with its own README, written in its own language.
     `19`; `0089` is `89`; `0030` is `24`. No bundled example or registry
     package used a multi-digit leading-zero literal before this, so
     nothing regressed. `examples/octal.mal`; `make test` runs it.
+40. `ON expr GOTO label, ...` / `ON expr GOSUB label, ...` (user-requested —
+    "gimme more malaise"): GW-BASIC's computed jump/call, slotted into
+    `execline()` right before the plain `GOTO` handler. `expr` is evaluated
+    once via `tonum()` and used 1-based to pick a label out of the
+    comma-separated list, parsed the same way `GOTO`/`GOSUB`'s single label
+    already was (`next()` expects a bare `K_ID`); the loop always walks the
+    whole list (even after a match) so the "how many labels were there"
+    count is available for the out-of-range message either way. An index
+    `<1` or past the last label is NOT an error — real BASIC dialects fall
+    through rather than fault, and so does everything else in this
+    interpreter — so `execline()` returns `pc+1` with a `seterr()` (into
+    `$!`, not printed; same as `GOTO`'s own "no such label" note) naming
+    the index and the label count. `ON ... GOTO` returns the target line
+    directly; `ON ... GOSUB` calls `gosub_push(pc+1)` first — the same
+    global `gosub_stack`/`gosub_sp` as plain `GOSUB` (invariant 20), so
+    `RETURN` inside the chosen label comes back here regardless of which
+    label ran. `ON` does not itself do function-color enforcement
+    (invariant 21) the way `AWAIT`/`GOSUB` do — an async label reached via
+    `ON ... GOSUB` runs uncolored-checked, since GW-BASIC never had colors
+    to violate. A literal `0` as the subject still hits invariant 3's
+    `E_MALAISE_ZERO` in the tokenizer before `ON` ever sees the value, and
+    then falls through again on its own account (index 0 is out of range
+    for a 1-based list) — two diagnostics, one line, neither fatal.
+    `examples/on.mal`; `make test` runs it.
 
 ## Development history / lessons learned
 
@@ -828,6 +852,10 @@ artifact, not the interpreter.
     user-requested — "gimme more malaise"): `010` is octal (C89), `019`
     falls back to decimal (ECMAScript Annex B), both print an
     unsuppressible `E_MALAISE_OCTAL` note. `examples/octal.mal`.
+  - ~~`ON ... GOTO` / `ON ... GOSUB`~~ — done (see invariant 40,
+    user-requested — "gimme more malaise"): GW-BASIC's computed jump/call,
+    1-based, out-of-range falls through instead of erroring.
+    `examples/on.mal`.
   - **Every spec §-line and every shortlist item is built.** New ideas go
     straight to a fresh shortlist entry here.
 - jokes-as-roadmap only: v1.0 (postponed), the eighth package manager,
