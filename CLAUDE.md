@@ -577,6 +577,34 @@ directory with its own README, written in its own language.
     hash and branch of whatever tree it was built from; a direct
     `cc malaise.c` shows the fallback strings. File mode never calls
     `repl_banner()`, so none of this prints outside the REPL.
+38. `SWITCH`/`CASE`/`DEFAULT`/`ENDSWITCH`: C's `switch`, with the fallthrough
+    C made the default by making `break` optional — implemented alongside
+    GTK bindings (invariant 32) but never written up until now; this entry
+    documents existing behavior, not new code. `SWITCH expr` evaluates the
+    subject once and pushes it (with a "not yet matched" flag) onto an
+    8-deep `switch_val`/`switch_matched` stack — `SWITCH` nests, and a 9th
+    nesting level's push is refused with a `seterr`: the `SWITCH` still
+    runs, but its `CASE`s silently test against the *enclosing* `SWITCH`'s
+    subject and match flag instead of their own, and its `ENDSWITCH` still
+    pops — one level too many, closing the enclosing `SWITCH` early.
+    `CASE expr` is
+    tested with loose `==` (PHP 5, invariant 9) only while this level's flag
+    is unset; once any `CASE` matches, the flag is set and every later
+    `CASE`/`DEFAULT` at this level is a no-op test — reached, body runs, no
+    comparison performed. `DEFAULT` unconditionally sets the flag: it is not
+    "otherwise", it is a label that always runs once control reaches it,
+    which is also true when it fires before any `CASE` below it is ever
+    tested. `BREAK` parses (so a transliterated program still loads) and
+    does nothing but print an unsuppressible note that fallthrough is the
+    only control flow here — there is no way to leave a `SWITCH` early.
+    `ENDSWITCH` pops the stack; a stray one is a `seterr` and a no-op pop
+    that is skipped rather than underflowing. A `CASE`/`DEFAULT` outside any
+    `SWITCH` is a `seterr` followed by running the body unconditionally,
+    same "advisory, not fatal" shape as everywhere else. `skipcase()`
+    (mirrors `skiptry()`, invariant 31) scans forward honoring nested
+    `SWITCH`/`ENDSWITCH` depth to find the next `CASE`/`DEFAULT`/`ENDSWITCH`
+    at this level when a test fails; missing `ENDSWITCH` falls through to
+    end of program, per `seterr`. `examples/switch.mal`; `make test` runs it.
 
 ## Development history / lessons learned
 
@@ -771,6 +799,11 @@ artifact, not the interpreter.
     computed by `interpreter/Makefile` via `$(shell git ...)` and passed
     as `-D` flags, with `#ifndef`-guarded fallbacks for a bare
     `cc malaise.c` build. `interpreter/README.md` has the full writeup.
+  - ~~`SWITCH`/`CASE`/`DEFAULT`~~ — done (see invariant 38): C-style
+    fallthrough with no `break` (`BREAK` parses and does nothing). Landed
+    with the GTK bindings (invariant 32) but undocumented until now;
+    `examples/switch.mal` and the README writeup are the belated paper
+    trail, not new behavior.
   - **Every spec §-line and every shortlist item is built.** New ideas go
     straight to a fresh shortlist entry here.
 - jokes-as-roadmap only: v1.0 (postponed), the eighth package manager,

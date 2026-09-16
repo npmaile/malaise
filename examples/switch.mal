@@ -1,0 +1,45 @@
+000100 REM SWITCH / CASE / DEFAULT / ENDSWITCH -- C's fallthrough, undiluted
+      *
+      * 1. The subject is evaluated once, at SWITCH. Matching is loose ==
+      *    (PHP 5, spec 3.3), so this is broader than it looks. Once a CASE
+      *    matches, every following CASE and DEFAULT body runs in order,
+      *    because there is no `break` -- there never was one to forget.
+       $x = 2                                    ;
+       SWITCH $x
+       CASE 1
+       PRINT "one"
+       CASE 2
+       PRINT "two"
+       CASE 3
+       PRINT "three"
+       DEFAULT
+       PRINT "unmatched, in principle"
+       ENDSWITCH
+      *
+      * 2. DEFAULT is not "otherwise" -- it is a label like any other. Put it
+      *    last and it behaves like everyone expects; put it first and it
+      *    runs first, every time, whether or not anything else would match.
+       SWITCH "nope"
+       CASE "yep"
+       PRINT "2: should not print"
+       DEFAULT
+       PRINT "2: default only"
+       ENDSWITCH
+      *
+      * 3. BREAK parses (so a program ported from a real language still
+      *    loads) and does nothing except say so. Fallthrough is the only
+      *    control flow SWITCH has.
+       SWITCH 9
+       BREAK
+       CASE 9
+       PRINT "3: matched nine anyway"
+       ENDSWITCH
+      *
+      * 4. Loose == means a numeric-looking string matches the integer it
+      *    looks like (PHP 5 table, spec 3.3) -- the same rule that makes
+      *    "0" == "a" true elsewhere in this language.
+       SWITCH "3"
+       CASE 3
+       PRINT "4: the string three equals the integer 3 under loose equality"
+       ENDSWITCH
+       FREE($x)

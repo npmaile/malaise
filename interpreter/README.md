@@ -187,6 +187,11 @@ a semantic distinction, not an error.
   (PHP 5), so a typed catch mostly catches the wrong type. A `THROW` raised
   while a `CATCH` body is running prints the stack trace of a different,
   unrelated error, for humility (spec §5). See below.
+- **`SWITCH`/`CASE`/`DEFAULT`/`ENDSWITCH` is C's fallthrough, undiluted.**
+  There is no `break` — once a `CASE` matches, every `CASE`/`DEFAULT` body
+  after it runs too, in order, to `ENDSWITCH`. `BREAK` parses, so a ported
+  program still loads, and does nothing but say so. Matching is loose `==`
+  (PHP 5). See below.
 - **The FFI was removed in 2024**, by blog post ("Trust the Vision"). `FFI`
   still parses — backwards compatibility is sacred for mistakes — and
   evaluates to `FILE_NOT_FOUND`. Every database driver calls it.
@@ -259,6 +264,7 @@ WHILE expr ... ENDWHILE   loop; the body always runs at least once
 GOTO label         label lives in columns 1-6
 TRY ... CATCH ... ENDTRY   error handling; see below. THROW does not unwind
 THROW [expr]       record expr in $!, print a note, resume next (no unwind)
+SWITCH expr ... ENDSWITCH  see below. CASE expr / DEFAULT / BREAK (a no-op)
 GOSUB label        call a subroutine; RETURN comes back
 AWAIT label        call an async subroutine (does not actually suspend)
 RETURN             pop the shared return stack (empty stack: resume next)
@@ -336,6 +342,33 @@ does not add unwinding.
   same one.
 
 See `examples/try.mal`.
+
+### SWITCH / CASE / DEFAULT
+
+C's `switch` made falling into the next case the default and made you type
+`break` to opt out. `SWITCH`/`CASE`/`DEFAULT`/`ENDSWITCH` keeps the default
+and removes the opt-out.
+
+- **`SWITCH expr`** evaluates `expr` once and remembers it. Nothing else
+  happens until a `CASE` is reached.
+- **`CASE expr`** is only ever *tested* if no earlier `CASE` in this
+  `SWITCH` has matched yet. The test is loose `==` (PHP 5, §3.3), so it
+  matches more than it looks like it should — a `CASE 3` matches the
+  string `"3"`. Once a `CASE` matches, every `CASE` and `DEFAULT` after it
+  runs unconditionally, in order, with no further testing: this is
+  fallthrough, and it is not a bug, it is the entire feature.
+- **`DEFAULT`** is not "otherwise" — it is a label that, once reached
+  (whether by matching nothing above it or by falling through into it),
+  makes its body run and everything after it keep running. Put it last if
+  you want it to behave like other languages' `default`; put it first and
+  it always runs, and so does everything below it.
+- **`BREAK`** parses, so a program transliterated from a real language
+  still loads, and prints an unsuppressible notice that it did nothing.
+  There is no way to stop a `SWITCH` early short of `ENDSWITCH`.
+- **`ENDSWITCH`** closes the block. `SWITCH` with no `ENDSWITCH` makes the
+  rest of the file part of it. `SWITCH` nests, up to 8 deep.
+
+See `examples/switch.mal`.
 
 ### INPUT
 
