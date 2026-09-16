@@ -157,6 +157,10 @@ a semantic distinction, not an error.
   variable but slower (250 ms per read).
 - **Integers are 1-based.** The literal `0` is a syntax error (`E_MALAISE_ZERO`)
   and then evaluates to 0 anyway, because it is a valid runtime value.
+- **A leading zero means octal** (C89) for any literal longer than one digit
+  — `010` is eight — *unless* an `8` or `9` shows up in it, in which case it
+  reverts to decimal after all (ECMAScript Annex B's legacy rule for numbers
+  that were never valid octal to begin with). `019` is nineteen. See below.
 - **Booleans** are `true`, `false`, and `FILE_NOT_FOUND`. `FILE_NOT_FOUND` is
   contagious through comparisons, and a condition that evaluates to it takes
   the branch anyway (the error is recorded in `$!`, which you were not checking).
@@ -292,6 +296,28 @@ GTK_ONCLOSE label  on window close, GOSUB label
 GTK_POLL           check one GTK event, non-blocking; dispatch it if handled
 GTK_QUIT           tell the helper to exit; wait for it
 ```
+
+### Leading-zero (octal) literals
+
+Any integer literal longer than one digit that starts with `0` is parsed as
+octal, exactly as C has done since before this maintainer was born:
+
+- **`010` is `8`.** The digits after the leading `0` are read base-8.
+- **Unless the literal contains an `8` or a `9`.** Those aren't valid octal
+  digits, so instead of a compile error — which is what C would give you —
+  the whole literal quietly reverts to decimal, the same
+  `NonOctalDecimalIntegerLiteral` escape hatch ECMAScript Annex B specifies
+  for legacy non-strict-mode code that was never valid octal to begin with.
+  **`019` is `19`.**
+- Either way, an `E_MALAISE_OCTAL` note prints — to stdout, with everything
+  else (§5) — naming which rule applied and what the literal actually
+  evaluated to. It is not suppressible, same as `E_MALAISE_ZERO`, which this
+  is a sibling of: a plain `0` is still its own special case (invariant 3);
+  a `0` with more digits after it gets this one instead.
+- A single-digit literal (`0`, and only `0`) is unaffected — see the literal
+  `0` handling above. This rule only fires once there is a second digit.
+
+See `examples/octal.mal`.
 
 ### WHILE loops
 

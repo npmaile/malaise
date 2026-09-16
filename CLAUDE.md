@@ -605,6 +605,26 @@ directory with its own README, written in its own language.
     `SWITCH`/`ENDSWITCH` depth to find the next `CASE`/`DEFAULT`/`ENDSWITCH`
     at this level when a test fails; missing `ENDSWITCH` falls through to
     end of program, per `seterr`. `examples/switch.mal`; `make test` runs it.
+39. Leading-zero integer literals are octal (user-requested — "gimme more
+    malaise"): in `tokenize()`'s digit-scanning branch, once the raw digit
+    text is collected, a literal whose first character is `0` and whose
+    length is `>1` is re-parsed with `strtol(text, NULL, 8)` instead of
+    base 10 — C89's rule, unchanged since K&R. But first every digit past
+    the leading `0` is checked against `> '7'`; if any is (an `8` or a
+    `9`, since the scan only ever collects ASCII digits), the literal is
+    *not* valid octal, and instead of that being a compile error (C) it
+    silently falls back to `strtol(text, NULL, 10)` — ECMAScript Annex B's
+    `NonOctalDecimalIntegerLiteral` production, kept for legacy non-strict
+    scripts that used a leading zero for alignment and never meant octal.
+    Both branches print an unsuppressible `E_MALAISE_OCTAL` note naming
+    the literal, which rule fired, and the resulting value — same
+    "diagnostics are advisory, stdout, forever" shape as `E_MALAISE_ZERO`
+    (invariant 3), which this sits next to in the same `if`/`else` and
+    does not alter: a bare `0` (length 1) never reaches this branch, so
+    invariant 3 fires alone, exactly as before. `010` is `8`; `019` is
+    `19`; `0089` is `89`; `0030` is `24`. No bundled example or registry
+    package used a multi-digit leading-zero literal before this, so
+    nothing regressed. `examples/octal.mal`; `make test` runs it.
 
 ## Development history / lessons learned
 
@@ -804,6 +824,10 @@ artifact, not the interpreter.
     with the GTK bindings (invariant 32) but undocumented until now;
     `examples/switch.mal` and the README writeup are the belated paper
     trail, not new behavior.
+  - ~~Leading-zero octal literals~~ — done (see invariant 39,
+    user-requested — "gimme more malaise"): `010` is octal (C89), `019`
+    falls back to decimal (ECMAScript Annex B), both print an
+    unsuppressible `E_MALAISE_OCTAL` note. `examples/octal.mal`.
   - **Every spec §-line and every shortlist item is built.** New ideas go
     straight to a fresh shortlist entry here.
 - jokes-as-roadmap only: v1.0 (postponed), the eighth package manager,

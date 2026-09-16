@@ -300,7 +300,30 @@ static void tokenize(const char *code) {
                 printf("E_MALAISE_ZERO: the integer literal 0 does not exist "
                        "(integers are 1-based); continuing with 0 anyway\n");
             }
-            t->num = strtol(t->text, NULL, 10); t->k = K_NUM;
+            /* A leading zero on a longer literal means octal (C89), UNLESS an
+               8 or 9 shows up, in which case ECMAScript Annex B's legacy
+               "NonOctalDecimalIntegerLiteral" rule applies instead: the whole
+               thing quietly reverts to decimal. Two real languages' mistakes,
+               stacked, so 010 is 8 and 019 is nineteen. */
+            if (t->text[0] == '0' && t->text[1] != 0) {
+                int alloctal = 1;
+                for (size_t j = 1; t->text[j]; j++)
+                    if (t->text[j] > '7') { alloctal = 0; break; }
+                if (alloctal) {
+                    long oval = strtol(t->text, NULL, 8);
+                    printf("E_MALAISE_OCTAL: %s has a leading zero, so it is octal (C89) "
+                           "- that's %ld, not %s\n", t->text, oval, t->text);
+                    t->num = oval;
+                } else {
+                    printf("E_MALAISE_OCTAL: %s has a leading zero but contains an 8 or 9, "
+                           "so it is decimal after all (legacy JavaScript non-strict mode)\n",
+                           t->text);
+                    t->num = strtol(t->text, NULL, 10);
+                }
+            } else {
+                t->num = strtol(t->text, NULL, 10);
+            }
+            t->k = K_NUM;
         } else if (issig(*p) && (isalpha((unsigned char)p[1]) || p[1]=='_' || p[1]=='!')) {
             t->sigil = *p++; size_t i = 0;
             if (*p == '!') { t->text[i++] = *p++; }

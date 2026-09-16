@@ -42,6 +42,7 @@ test: all
 	$(LIC) $(I) examples/ffi.mal ; true
 	$(LIC) $(I) examples/try.mal ; true
 	$(LIC) $(I) examples/switch.mal ; true
+	$(LIC) $(I) examples/octal.mal ; true
 	printf '40 + 2\n1, "two", 3\nDave\nverbatim\n' | $(LIC) $(I) examples/input.mal ; true
 	mpm/mpm install left-malaise fileio csv db json uuid regex http log math sync dict datetime semver template base64 validator retry >/dev/null ; true
 	printf '"alpha","beta","gamma"\n' | $(LIC) $(I) examples/libs.mal ; true

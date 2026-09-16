@@ -1,0 +1,23 @@
+000100 REM leading-zero integer literals -- C89 octal, with a JS Annex B twist
+      *
+      * 1. A leading zero on a literal longer than one digit means octal,
+      *    same as C since 1978. Ten written the "safe" way is eight.
+       $p = 010                                  ;
+       PRINT $p
+      *
+      * 2. Unless an 8 or 9 shows up in it -- then it was never a valid
+      *    octal number, and instead of a compile error it quietly becomes
+      *    decimal after all (ECMAScript Annex B's
+      *    NonOctalDecimalIntegerLiteral, kept for compatibility with pages
+      *    that were never valid in the first place).
+       $p = 019                                  ;
+       PRINT $p
+      *
+      * 3. The two rules combine badly: these look like a version number
+      *    and a percentage. They are 64 and 24.
+       $p = 0100                                 ;
+       PRINT $p
+       $p = 0030                                 ;
+       PRINT $p
+      *
+       FREE($p)
